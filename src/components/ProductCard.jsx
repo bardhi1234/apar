@@ -1,515 +1,451 @@
-import {
-  ArrowUpRight,
-  Heart,
-} from "lucide-react";
 
+import { useState } from "react";
 import { Link } from "react-router-dom";
 
 import {
-  useWishlist,
-} from "../context/WishlistContext";
+  ArrowUpRight,
+  Heart,
+  ImageOff,
+  ShoppingBag,
+} from "lucide-react";
 
-const APAR_LOGO =
-  "https://res.cloudinary.com/dmlszpk5l/image/upload/v1790361997/ChatGPT_Image_Sep_25_2026_08_43_05_PM_aqnxkj.png";
+import { useCart } from "../context/CartContext";
+import { useWishlist } from "../context/WishlistContext";
 
-export default function ProductCard({
-  product,
-}) {
+// LOGO ORIGJINALE PROTEINFITNESS
+const LOGO =
+  "https://res.cloudinary.com/dzyn3rfgk/image/upload/v1794083333/proteinfitness-logo.png_c2xpdv.png";
+
+// KONVERTIMI I ÇMIMEVE
+function toPrice(value) {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
+    return null;
+  }
+
+  if (typeof value === "number") {
+    return Number.isFinite(value) && value >= 0
+      ? value
+      : null;
+  }
+
+  const cleaned = String(value)
+    .trim()
+    .replace(/\s|€/g, "");
+
+  const normalized =
+    cleaned.includes(",") && cleaned.includes(".")
+      ? cleaned.lastIndexOf(",") >
+        cleaned.lastIndexOf(".")
+        ? cleaned.replace(/\./g, "").replace(",", ".")
+        : cleaned.replace(/,/g, "")
+      : cleaned.replace(",", ".");
+
+  const number = Number(normalized);
+
+  return Number.isFinite(number) && number >= 0
+    ? number
+    : null;
+}
+
+// FORMATIMI I ÇMIMIT NË EURO
+const euro = (value) =>
+  new Intl.NumberFormat("de-DE", {
+    style: "currency",
+    currency: "EUR",
+  }).format(value);
+
+// MERR URL E FOTOGRAFISË
+function imageUrl(image) {
+  if (typeof image === "string") {
+    return image;
+  }
+
+  if (image && typeof image === "object") {
+    return (
+      image.url ||
+      image.secure_url ||
+      image.image_url ||
+      ""
+    );
+  }
+
+  return "";
+}
+
+export default function ProductCard({ product }) {
   const {
     isInWishlist,
     toggleWishlist,
   } = useWishlist();
 
-  const favorite =
-    isInWishlist(product.id);
+  const { addToCart } = useCart();
 
-  const getNumber = (value) => {
-    if (typeof value === "number") {
-      return value;
-    }
+  const [imageError, setImageError] = useState(false);
 
-    if (!value) return null;
+  if (!product || product.id == null) {
+    return null;
+  }
 
-    const cleaned = String(value)
-      .replace(",", ".")
-      .replace(/[^0-9.-]/g, "");
+  // WISHLIST
+  const favorite = isInWishlist(product.id);
 
-    const number = Number(cleaned);
+  // ÇMIMET
+  const price = toPrice(product.price);
 
-    return Number.isFinite(number)
-      ? number
-      : null;
-  };
+  const oldPrice = toPrice(
+    product.oldPrice ?? product.old_price
+  );
 
-  const priceNumber =
-    getNumber(product.price);
+  // KONTROLLI I ZBRITJES
+  const discounted =
+    price !== null &&
+    oldPrice !== null &&
+    oldPrice > price;
 
-  const oldPriceNumber =
-    getNumber(product.oldPrice);
+  const discountPercent = discounted
+    ? Math.round(
+        ((oldPrice - price) / oldPrice) * 100
+      )
+    : 0;
 
-  const formatPrice = (
-    value,
-    fallback
-  ) => {
-    if (
-      typeof value === "number" &&
-      Number.isFinite(value)
-    ) {
-      return `${value.toFixed(2)} €`;
-    }
+  // FOTOGRAFITË
+  const allImages = [
+    product.image,
+    ...(Array.isArray(product.images)
+      ? product.images
+      : []),
+  ]
+    .map(imageUrl)
+    .filter(Boolean);
 
-    return fallback || "";
-  };
+  const images = [...new Set(allImages)];
 
-  const displayPrice =
-    formatPrice(
-      priceNumber,
-      product.price
-    );
+  const mainImage = images[0] || null;
+  const secondImage = images[1] || null;
 
-  const displayOldPrice =
-    oldPriceNumber !== null
-      ? formatPrice(
-          oldPriceNumber,
-          product.oldPrice
-        )
-      : null;
+  // KONTROLLI I STOKUT
+  const stock =
+    product.stock === null ||
+    product.stock === undefined ||
+    product.stock === ""
+      ? null
+      : Number(product.stock);
 
-  const discountPercent =
-    priceNumber !== null &&
-    oldPriceNumber !== null &&
-    oldPriceNumber > priceNumber
-      ? Math.round(
-          ((oldPriceNumber -
-            priceNumber) /
-            oldPriceNumber) *
-            100
-        )
-      : null;
+  const hasStockInfo =
+    stock !== null && Number.isFinite(stock);
 
-  const secondImage =
-    product.images?.length > 1
-      ? product.images[1]
-      : null;
-
-  const imageCount =
-    product.images?.length || 1;
-
-  const hasStock =
-    product.stock !== undefined &&
-    product.stock !== null;
-
-  const isOutOfStock =
-    hasStock &&
-    Number(product.stock) <= 0;
+  const outOfStock =
+    hasStockInfo && stock <= 0;
 
   const lowStock =
-    hasStock &&
-    !isOutOfStock &&
-    Number(product.stock) <= 5;
+    hasStockInfo && stock > 0 && stock <= 5;
 
-  const productCode =
-    `APAR-${String(
-      product.id
-    ).padStart(3, "0")}`;
+  const canBuy = price !== null && !outOfStock;
 
-  const handleWishlist = (
-    event
-  ) => {
-    event.preventDefault();
-    event.stopPropagation();
+  // VARIANTET
+  const sizes = Array.isArray(product.sizes)
+    ? product.sizes
+    : [];
 
-    toggleWishlist(product.id);
-  };
+  const colors = Array.isArray(product.colors)
+    ? product.colors
+    : [];
+
+  const needsSelection =
+    sizes.length > 1 || colors.length > 1;
+
+  // KATEGORIA
+  const category =
+    typeof product.category === "string"
+      ? product.category
+      : product.category?.name || "SUPLEMENTE";
+
+  const productLink = `/product/${encodeURIComponent(
+    product.id
+  )}`;
+
+  const productCode = `PF-${String(
+    product.id
+  ).padStart(3, "0")}`;
+
+  // SHTO NË SHPORTË
+  function handleAddToCart() {
+    if (!canBuy || needsSelection) {
+      return;
+    }
+
+    addToCart(
+      {
+        ...product,
+        price,
+        image: mainImage || product.image || "",
+      },
+      {
+        quantity: 1,
+        size: sizes[0] ?? null,
+        color: colors[0] ?? null,
+      }
+    );
+  }
 
   return (
-    <article className="group relative">
+    <article className="group relative flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#141414] text-white shadow-[0_12px_45px_rgba(0,0,0,0.22)] transition-all duration-300 hover:-translate-y-1 hover:border-[#FF7900]/65 hover:shadow-[0_22px_65px_rgba(255,121,0,0.10)] motion-reduce:transform-none">
 
-      {/* ===================================== */}
-      {/* LUXURY CARD */}
-      {/* ===================================== */}
+      {/* ================================= */}
+      {/* PRODUCT IMAGE */}
+      {/* ================================= */}
 
-      <div className="relative bg-white">
+      <div className="relative overflow-hidden bg-gradient-to-br from-[#292929] via-[#1B1B1B] to-[#101010]">
 
-        {/* VERY SUBTLE OUTER SHADOW */}
-        <div className="pointer-events-none absolute -inset-[1px] z-0 border border-black/[0.07] transition-all duration-700 group-hover:border-black/[0.14] group-hover:shadow-[0_28px_80px_rgba(0,0,0,0.12)]" />
+        <Link
+          to={productLink}
+          aria-label={`Shiko produktin ${product.name}`}
+          className="relative block aspect-[4/5] overflow-hidden"
+        >
 
-        {/* IMAGE */}
-        <div className="relative z-10 overflow-hidden bg-[#eeeeec]">
-
-          <Link
-            to={`/product/${product.id}`}
-            className="relative block aspect-[4/5] overflow-hidden"
-            aria-label={`Shiko ${product.name}`}
-          >
-
-            {/* ============================= */}
-            {/* MAIN IMAGE */}
-            {/* ============================= */}
-
-            <img
-              src={product.image}
-              alt={product.name}
-              loading="lazy"
-              className={`absolute inset-0 h-full w-full object-cover transition-all duration-[1100ms] ease-out ${
-                secondImage
-                  ? "scale-[1.015] group-hover:scale-[1.04] group-hover:opacity-0"
-                  : "scale-[1.015] group-hover:scale-[1.055]"
-              }`}
-            />
-
-            {/* ============================= */}
-            {/* SECOND IMAGE */}
-            {/* ============================= */}
-
-            {secondImage && (
+          {mainImage && !imageError ? (
+            <>
+              {/* MAIN IMAGE */}
               <img
-                src={secondImage}
-                alt=""
-                aria-hidden="true"
+                src={mainImage}
+                alt={
+                  product.name ||
+                  "Produkt ProteinFitness"
+                }
                 loading="lazy"
-                className="absolute inset-0 h-full w-full scale-[1.065] object-cover opacity-0 transition-all duration-[1100ms] ease-out group-hover:scale-[1.015] group-hover:opacity-100"
+                onError={() => setImageError(true)}
+                className={`absolute inset-0 h-full w-full object-contain p-5 transition-all duration-700 motion-reduce:transition-none sm:p-7 ${
+                  secondImage
+                    ? "group-hover:scale-105 group-hover:opacity-0"
+                    : "group-hover:scale-105"
+                }`}
               />
-            )}
 
-            {/* ============================= */}
-            {/* CINEMATIC OVERLAYS */}
-            {/* ============================= */}
+              {/* SECOND IMAGE ON HOVER */}
+              {secondImage && (
+                <img
+                  src={secondImage}
+                  alt=""
+                  aria-hidden="true"
+                  loading="lazy"
+                  className="absolute inset-0 h-full w-full scale-105 object-contain p-5 opacity-0 transition-all duration-700 group-hover:scale-100 group-hover:opacity-100 motion-reduce:transition-none sm:p-7"
+                />
+              )}
+            </>
+          ) : (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-neutral-500">
+              <ImageOff
+                size={35}
+                strokeWidth={1.5}
+              />
 
-            <div className="pointer-events-none absolute inset-0 bg-black/[0.02] transition duration-700 group-hover:bg-black/[0.05]" />
+              <span className="text-[10px] font-semibold uppercase tracking-[0.15em]">
+                Foto në përgatitje
+              </span>
+            </div>
+          )}
 
-            <div className="pointer-events-none absolute inset-x-0 top-0 h-[36%] bg-gradient-to-b from-black/30 via-black/[0.07] to-transparent" />
-
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[46%] bg-gradient-to-t from-black/90 via-black/40 to-transparent transition-all duration-700 group-hover:h-[55%] group-hover:from-black/95 group-hover:via-black/50" />
-
-            {/* DARK SIDE VIGNETTE */}
-            <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-black/[0.08] via-transparent to-black/[0.04]" />
-
-            {/* ============================= */}
-            {/* PREMIUM LIGHT SHEEN */}
-            {/* ============================= */}
-
-            <div className="pointer-events-none absolute -left-[80%] top-0 h-full w-[45%] rotate-[12deg] bg-gradient-to-r from-transparent via-white/[0.14] to-transparent opacity-0 blur-md transition-all duration-[1200ms] group-hover:left-[140%] group-hover:opacity-100" />
-
-            {/* ============================= */}
-            {/* GIANT LOGO WATERMARK */}
-            {/* ============================= */}
-
+          {/* PROTEINFITNESS WATERMARK */}
+          <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center">
             <img
-              src={APAR_LOGO}
+              src={LOGO}
               alt=""
               aria-hidden="true"
-              className="pointer-events-none absolute bottom-[17%] left-1/2 w-[72%] -translate-x-1/2 object-contain opacity-[0.045] mix-blend-screen transition-all duration-700 group-hover:scale-[1.04] group-hover:opacity-[0.075]"
+              loading="lazy"
+              className="h-10 w-28 object-contain opacity-40 sm:h-12 sm:w-36"
             />
-
-            {/* ============================= */}
-            {/* MICRO BRAND — TOP CENTER */}
-            {/* ============================= */}
-
-            <div className="pointer-events-none absolute left-1/2 top-4 z-10 hidden -translate-x-1/2 items-center gap-2 lg:flex">
-
-              <span className="h-px w-5 bg-white/25" />
-
-              <span className="whitespace-nowrap text-[7px] font-black tracking-[0.38em] text-white/45">
-                APAR COLLECTION
-              </span>
-
-              <span className="h-px w-5 bg-white/25" />
-
-            </div>
-
-            {/* ============================= */}
-            {/* BOTTOM BRANDING */}
-            {/* ============================= */}
-
-            <div className="pointer-events-none absolute bottom-4 left-4 right-4 z-20 sm:bottom-5 sm:left-5 sm:right-5">
-
-              <div className="flex items-end justify-between gap-4">
-
-                <div>
-
-                  {/* SMALL APAR LOGO */}
-                  <img
-                    src={APAR_LOGO}
-                    alt="APAR"
-                    className="w-[82px] object-contain opacity-100 mix-blend-screen sm:w-[100px]"
-                  />
-
-                  {/* TAGLINE */}
-                  <div className="mt-2 flex items-center gap-2">
-
-                    <div className="flex">
-                      <span className="h-[2px] w-3 bg-[#009246]" />
-                      <span className="h-[2px] w-3 bg-white/80" />
-                      <span className="h-[2px] w-3 bg-[#CE2B37]" />
-                    </div>
-
-                    <p className="hidden text-[7px] font-bold tracking-[0.3em] text-white/55 sm:block">
-                      WEAR YOUR STORY
-                    </p>
-
-                  </div>
-
-                </div>
-
-                {/* PRODUCT NUMBER */}
-                <div className="text-right">
-
-                  <p className="text-[7px] font-semibold tracking-[0.28em] text-white/40">
-                    {productCode}
-                  </p>
-
-                  <p className="mt-1 text-[8px] font-black tracking-[0.18em] text-white/75">
-                    {String(
-                      product.id
-                    ).padStart(2, "0")}
-                  </p>
-
-                </div>
-
-              </div>
-
-            </div>
-
-            {/* ============================= */}
-            {/* PREMIUM HOVER CTA */}
-            {/* ============================= */}
-
-            <div className="pointer-events-none absolute bottom-[78px] left-4 right-4 z-30 hidden translate-y-4 items-center justify-between border-t border-white/20 pt-4 opacity-0 transition-all duration-500 group-hover:translate-y-0 group-hover:opacity-100 sm:left-5 sm:right-5 lg:flex">
-
-              <span className="text-[9px] font-black tracking-[0.24em] text-white">
-                VIEW PRODUCT
-              </span>
-
-              <div className="flex h-9 w-9 items-center justify-center border border-white/20 bg-white/[0.08] text-white backdrop-blur-md">
-                <ArrowUpRight
-                  size={15}
-                />
-              </div>
-
-            </div>
-
-          </Link>
-
-          {/* ================================= */}
-          {/* BADGES */}
-          {/* ================================= */}
-
-          <div className="pointer-events-none absolute left-3 top-3 z-30 flex flex-col items-start gap-1.5 sm:left-4 sm:top-4">
-
-            {product.badge && (
-              <span className="border border-white/10 bg-black/90 px-3 py-2 text-[8px] font-black tracking-[0.2em] text-white backdrop-blur-md">
-                {product.badge}
-              </span>
-            )}
-
-            {discountPercent && (
-              <span className="bg-[#CE2B37] px-3 py-2 text-[8px] font-black tracking-[0.2em] text-white shadow-[0_8px_30px_rgba(206,43,55,0.25)]">
-                −{discountPercent}%
-              </span>
-            )}
-
-            {isOutOfStock && (
-              <span className="bg-[#111] px-3 py-2 text-[8px] font-black tracking-[0.18em] text-white">
-                SOLD OUT
-              </span>
-            )}
-
           </div>
 
-          {/* ================================= */}
-          {/* WISHLIST GLASS BUTTON */}
-          {/* ================================= */}
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/35 to-transparent" />
 
-          <button
-            type="button"
-            onClick={handleWishlist}
-            aria-label={
-              favorite
-                ? "Largo nga Wishlist"
-                : "Shto në Wishlist"
-            }
-            title={
-              favorite
-                ? "Largo nga Wishlist"
-                : "Shto në Wishlist"
-            }
-            className={`absolute right-3 top-3 z-40 flex h-11 w-11 items-center justify-center border transition-all duration-500 sm:right-4 sm:top-4 ${
-              favorite
-                ? "scale-[1.02] border-white/20 bg-black text-white shadow-[0_10px_30px_rgba(0,0,0,0.3)]"
-                : "border-white/25 bg-black/20 text-white backdrop-blur-xl hover:border-white hover:bg-white hover:text-black"
-            }`}
-          >
-            <Heart
-              size={17}
-              strokeWidth={1.6}
-              fill={
-                favorite
-                  ? "currentColor"
-                  : "none"
-              }
-              className="transition duration-300"
-            />
-          </button>
+        </Link>
 
-          {/* ================================= */}
-          {/* PHOTO COUNTER */}
-          {/* ================================= */}
+        {/* ================================= */}
+        {/* PRODUCT BADGES */}
+        {/* ================================= */}
 
-          {imageCount > 1 && (
-            <div className="pointer-events-none absolute right-3 top-[62px] z-30 flex items-center gap-1.5 border border-white/10 bg-black/30 px-2.5 py-1.5 backdrop-blur-xl transition duration-500 sm:right-4 sm:top-[68px]">
+        <div className="pointer-events-none absolute left-3 top-3 z-10 flex max-w-[65%] flex-col items-start gap-2">
 
-              <span className="text-[8px] font-black text-white">
-                {String(
-                  imageCount
-                ).padStart(2, "0")}
-              </span>
+          {/* DISCOUNT */}
+          {discounted && (
+            <span className="rounded-md bg-[#FF7900] px-2.5 py-1.5 text-[10px] font-black tracking-wide text-black sm:px-3 sm:text-xs">
+              −{discountPercent}% ZBRITJE
+            </span>
+          )}
 
-              <span className="text-[7px] tracking-[0.2em] text-white/45">
-                IMAGES
-              </span>
+          {/* CUSTOM BADGE */}
+          {product.badge && (
+            <span className="max-w-full truncate rounded-md border border-white/15 bg-black/80 px-2.5 py-1.5 text-[9px] font-extrabold uppercase tracking-wide text-white">
+              {product.badge}
+            </span>
+          )}
 
-            </div>
+          {/* OUT OF STOCK */}
+          {outOfStock && (
+            <span className="rounded-md bg-black/90 px-2.5 py-1.5 text-[9px] font-black text-white">
+              PA STOK
+            </span>
           )}
 
         </div>
 
-        {/* ===================================== */}
-        {/* PRODUCT INFO */}
-        {/* ===================================== */}
+        {/* ================================= */}
+        {/* WISHLIST BUTTON */}
+        {/* ================================= */}
 
-        <div className="relative z-10 bg-white px-4 pb-5 pt-5 sm:px-5 sm:pb-6">
-
-          {/* TOP META */}
-          <div className="flex items-center justify-between gap-3">
-
-            <p className="text-[8px] font-black uppercase tracking-[0.3em] text-neutral-400">
-              {product.category}
-            </p>
-
-            <span className="text-[8px] font-semibold tracking-[0.18em] text-neutral-300">
-              {productCode}
-            </span>
-
-          </div>
-
-          {/* PRODUCT NAME */}
-          <Link
-            to={`/product/${product.id}`}
-            className="group/title mt-3 block"
-          >
-            <div className="flex items-start justify-between gap-5">
-
-              <h3 className="line-clamp-2 min-h-[44px] text-[15px] font-black leading-[1.35] tracking-[-0.02em] text-black transition duration-300 group-hover/title:text-neutral-600 sm:text-[16px]">
-                {product.name}
-              </h3>
-
-              <ArrowUpRight
-                size={15}
-                className="mt-1 hidden flex-shrink-0 text-neutral-300 transition-all duration-300 group-hover/title:-translate-y-0.5 group-hover/title:translate-x-0.5 group-hover/title:text-black sm:block"
-              />
-
-            </div>
-          </Link>
-
-          {/* DIVIDER */}
-          <div className="my-4 h-px bg-neutral-100" />
-
-          {/* PRICE + STOCK */}
-          <div className="flex items-end justify-between gap-3">
-
-            <div>
-
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-
-                <span className="text-[17px] font-black tracking-[-0.03em] text-black sm:text-lg">
-                  {displayPrice}
-                </span>
-
-                {displayOldPrice && (
-                  <span className="text-xs font-medium text-neutral-400 line-through">
-                    {displayOldPrice}
-                  </span>
-                )}
-
-              </div>
-
-              {discountPercent && (
-                <p className="mt-1.5 text-[9px] font-bold tracking-[0.08em] text-[#CE2B37]">
-                  SAVE {discountPercent}%
-                </p>
-              )}
-
-            </div>
-
-            {/* STOCK */}
-            {hasStock && (
-              <div className="flex items-center gap-2 pb-1">
-
-                <span
-                  className={`h-1.5 w-1.5 rounded-full ${
-                    isOutOfStock
-                      ? "bg-red-600"
-                      : lowStock
-                      ? "bg-amber-500"
-                      : "bg-green-600"
-                  }`}
-                />
-
-                <span
-                  className={`text-[8px] font-bold tracking-[0.08em] ${
-                    isOutOfStock
-                      ? "text-red-600"
-                      : lowStock
-                      ? "text-amber-600"
-                      : "text-neutral-400"
-                  }`}
-                >
-                  {isOutOfStock
-                    ? "SOLD OUT"
-                    : lowStock
-                    ? `ONLY ${product.stock}`
-                    : "IN STOCK"}
-                </span>
-
-              </div>
-            )}
-
-          </div>
-
-          {/* MOBILE BUTTON */}
-          <Link
-            to={`/product/${product.id}`}
-            className="mt-5 flex min-h-[46px] items-center justify-between border-t border-neutral-100 pt-4 text-black sm:hidden"
-          >
-
-            <span className="text-[9px] font-black tracking-[0.2em]">
-              SHIKO PRODUKTIN
-            </span>
-
-            <ArrowUpRight
-              size={15}
-            />
-
-          </Link>
-
-        </div>
-
-        {/* ===================================== */}
-        {/* BOTTOM BRAND LINE */}
-        {/* ===================================== */}
-
-        <div className="relative z-10 flex h-[2px] w-full overflow-hidden opacity-0 transition-opacity duration-500 group-hover:opacity-100">
-
-          <span className="flex-1 bg-[#009246]" />
-
-          <span className="flex-1 bg-neutral-200" />
-
-          <span className="flex-1 bg-[#CE2B37]" />
-
-        </div>
+        <button
+          type="button"
+          onClick={() => toggleWishlist(product.id)}
+          aria-label={
+            favorite
+              ? "Largo nga të preferuarat"
+              : "Shto te të preferuarat"
+          }
+          aria-pressed={favorite}
+          title={
+            favorite
+              ? "Largo nga të preferuarat"
+              : "Shto te të preferuarat"
+          }
+          className={`absolute right-3 top-3 z-20 flex h-10 w-10 items-center justify-center rounded-xl border backdrop-blur-md transition-all duration-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#FF7900] ${
+            favorite
+              ? "border-[#FF7900] bg-[#FF7900] text-black"
+              : "border-white/20 bg-black/50 text-white hover:border-[#FF7900] hover:text-[#FF7900]"
+          }`}
+        >
+          <Heart
+            size={18}
+            fill={favorite ? "currentColor" : "none"}
+          />
+        </button>
 
       </div>
+
+      {/* ================================= */}
+      {/* PRODUCT INFORMATION */}
+      {/* ================================= */}
+
+      <div className="flex flex-1 flex-col px-3 pb-3 pt-4 sm:px-5 sm:pb-5 sm:pt-5">
+
+        {/* CATEGORY & CODE */}
+        <div className="flex items-center justify-between gap-2">
+
+          <span className="min-w-0 truncate text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#FF9B39]">
+            {category}
+          </span>
+
+          <span className="shrink-0 text-[9px] font-medium text-neutral-600">
+            {productCode}
+          </span>
+
+        </div>
+
+        {/* PRODUCT NAME */}
+        <Link
+          to={productLink}
+          className="mt-2 block"
+        >
+          <h3 className="line-clamp-2 min-h-[44px] text-sm font-extrabold leading-[1.45] tracking-[-0.015em] text-white transition-colors hover:text-[#FF9B39] sm:text-base">
+            {product.name || "Produkt ProteinFitness"}
+          </h3>
+        </Link>
+
+        {/* ================================= */}
+        {/* PRICE */}
+        {/* ================================= */}
+
+        <div className="mt-4 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+
+          <span className="text-lg font-black tracking-tight text-white sm:text-2xl">
+            {price !== null
+              ? euro(price)
+              : "Çmimi në përgatitje"}
+          </span>
+
+          {/* OLD PRICE */}
+          {discounted && (
+            <span className="text-xs font-medium text-neutral-500 line-through">
+              {euro(oldPrice)}
+            </span>
+          )}
+
+        </div>
+
+        {/* ================================= */}
+        {/* STOCK STATUS */}
+        {/* ================================= */}
+
+        <div className="mt-2 min-h-5">
+
+          {outOfStock ? (
+            <p className="text-[10px] font-bold text-red-400">
+              ● PA STOK
+            </p>
+          ) : lowStock ? (
+            <p className="text-[10px] font-bold text-amber-400">
+              ● VETËM {Math.floor(stock)} NË STOK
+            </p>
+          ) : hasStockInfo ? (
+            <p className="text-[10px] font-bold text-green-400">
+              ● NË STOK
+            </p>
+          ) : (
+            <p className="text-[10px] text-neutral-500">
+              Kontakto për disponueshmërinë
+            </p>
+          )}
+
+        </div>
+
+        {/* ================================= */}
+        {/* ADD TO CART */}
+        {/* ================================= */}
+
+        <div className="mt-auto pt-4">
+
+          {needsSelection || !canBuy ? (
+            <Link
+              to={productLink}
+              className="flex min-h-11 w-full items-center justify-between gap-2 rounded-lg bg-[#FF7900] px-3 text-[11px] font-black uppercase tracking-wide text-black transition-colors hover:bg-[#FFA23B] sm:px-4"
+            >
+              {canBuy
+                ? "ZGJIDH VARIANTIN"
+                : "SHIKO PRODUKTIN"}
+
+              <ArrowUpRight size={18} />
+            </Link>
+          ) : (
+            <button
+              type="button"
+              onClick={handleAddToCart}
+              disabled={!canBuy}
+              className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#FF7900] px-2 text-[10px] font-black uppercase tracking-wide text-black transition-colors hover:bg-[#FFA23B] disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400 sm:px-4 sm:text-xs"
+            >
+              <ShoppingBag size={17} />
+              SHTO NË SHPORTË
+            </button>
+          )}
+
+        </div>
+
+        {/* DETAILS BUTTON */}
+        <Link
+          to={productLink}
+          className="mt-3 inline-flex items-center justify-center gap-1.5 py-1 text-[10px] font-bold uppercase tracking-wider text-neutral-400 transition-colors hover:text-[#FF7900]"
+        >
+          SHIKO DETAJET
+
+          <ArrowUpRight size={14} />
+        </Link>
+
+      </div>
+
+      {/* BOTTOM ACCENT */}
+      <div className="h-[2px] w-full bg-gradient-to-r from-transparent via-[#FF7900]/65 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
 
     </article>
   );

@@ -1,52 +1,85 @@
-import ShopCategoryNav from "./ShopCategoryNav";
-import { ArrowUpRight } from "lucide-react";
+
 import { Link, useSearchParams } from "react-router-dom";
 
+import {
+  ArrowRight,
+  ArrowUpRight,
+  ChevronRight,
+  Dumbbell,
+} from "lucide-react";
+
+import ShopCategoryNav from "./ShopCategoryNav";
+
+// ======================================
+// PROTEINFITNESS - SHOP HERO CONFIG
+// ======================================
+
+// Fotografitë janë ilustrative.
+// Mund t'i zëvendësojmë me foto nga Cloudinary.
+
 const categoryData = {
-  Veshje: {
-    title: "VESHJE",
+  Proteina: {
+    title: "PROTEINA",
     number: "01",
+    label: "PROTEINFITNESS / PROTEINS",
     description:
-      "Koleksione të përzgjedhura për një stil modern, të pastër dhe të dallueshëm.",
+      "Eksploro koleksionin e proteinave dhe gjej produktet që i përshtaten preferencave dhe rutinës tënde sportive.",
     image:
-      "https://images.unsplash.com/photo-1445205170230-053b83016050?auto=format&fit=crop&w=1600&q=90",
+      "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?auto=format&fit=crop&w=1800&q=85",
   },
 
-  Aksesorë: {
-    title: "AKSESORË",
+  Kreatinë: {
+    title: "KREATINË",
     number: "02",
+    label: "PROTEINFITNESS / CREATINE",
     description:
-      "Detajet që kompletojnë stilin. Aksesorë modernë të përzgjedhur nga APAR.",
+      "Zbulo produktet e kreatinës dhe krahaso variantet e disponueshme në katalogun tonë.",
     image:
-      "https://images.unsplash.com/photo-1523779917675-b6ed3a42a561?auto=format&fit=crop&w=1600&q=90",
+      "https://images.unsplash.com/photo-1517836357463-d25dfeac3438?auto=format&fit=crop&w=1800&q=85",
   },
 
-  Kozmetikë: {
-    title: "KOZMETIKË",
+  "Vitamina & Minerale": {
+    title: "VITAMINA & MINERALE",
     number: "03",
+    label: "PROTEINFITNESS / VITAMINS",
     description:
-      "Produkte të përzgjedhura për ta kompletuar identitetin dhe stilin tënd.",
+      "Eksploro vitaminat dhe mineralet në katalogun tonë, me informacione të qarta për secilin produkt.",
     image:
-      "https://images.unsplash.com/photo-1596462502278-27bfdc403348?auto=format&fit=crop&w=1600&q=90",
+      "https://images.unsplash.com/photo-1598971639058-fab3c3109a00?auto=format&fit=crop&w=1800&q=85",
   },
 
-  Personalizim: {
-    title: "APAR CUSTOM",
+  "Aksesorë Sportivë": {
+    title: "AKSESORË SPORTIVË",
     number: "04",
+    label: "PROTEINFITNESS / ACCESSORIES",
     description:
-      "Krijo diçka vetëm për ty. Emër, foto, dizajn apo ide personale.",
+      "Shaker, çanta dhe aksesorë praktikë për palestër dhe aktivitetet e tua sportive.",
     image:
-      "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=1600&q=90",
+      "https://images.unsplash.com/photo-1517836357463-d25dfeac3438?auto=format&fit=crop&w=1800&q=85",
   },
 };
 
+// ALIASET E KATEGORIVE
+// Ndihmojnë nëse emrat në databazë ndryshojnë pak.
+
+const categoryAliases = {
+  kreatina: "Kreatinë",
+  creatine: "Kreatinë",
+  vitamins: "Vitamina & Minerale",
+  vitamina: "Vitamina & Minerale",
+  "vitamina dhe minerale": "Vitamina & Minerale",
+  aksesorë: "Aksesorë Sportivë",
+  aksesore: "Aksesorë Sportivë",
+};
+
 const defaultData = {
-  title: "SHOP",
+  title: "PRODUKTET",
   number: "00",
+  label: "PROTEINFITNESS / ONLINE STORE",
   description:
-    "Zbulo koleksionin APAR — veshje, aksesorë dhe produkte të përzgjedhura për stilin tënd.",
+    "Zbulo proteina, kreatinë, vitamina, minerale dhe aksesorë sportivë. Eksploro katalogun dhe gjej produktet që kërkon.",
   image:
-    "https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=1600&q=90",
+    "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?auto=format&fit=crop&w=1800&q=85",
 };
 
 export default function ShopHero() {
@@ -54,157 +87,252 @@ export default function ShopHero() {
 
   const category = searchParams.get("category");
 
-  const data =
-    categoryData[category] || defaultData;
+  const normalizedCategory = category?.trim() || "";
 
-  const categories = [
-    {
-      name: "ALL",
-      to: "/shop",
-      category: null,
-    },
-    {
-      name: "VESHJE",
-      to: "/shop?category=Veshje",
-      category: "Veshje",
-    },
-    {
-      name: "AKSESORË",
-      to: "/shop?category=Aksesorë",
-      category: "Aksesorë",
-    },
-    {
-      name: "KOZMETIKË",
-      to: "/shop?category=Kozmetikë",
-      category: "Kozmetikë",
-    },
-    {
-      name: "CUSTOM",
-      to: "/personalizim",
-      category: "Personalizim",
-    },
-  ];
+  const matchingCategory = normalizedCategory
+    ? Object.keys(categoryData).find(
+        (name) =>
+          name.toLocaleLowerCase("sq") ===
+          normalizedCategory.toLocaleLowerCase("sq")
+      )
+    : null;
+
+  const alias =
+    categoryAliases[
+      normalizedCategory.toLocaleLowerCase("sq")
+    ];
+
+  const selectedData =
+    categoryData[matchingCategory] ||
+    categoryData[alias] ||
+    null;
+
+  const data = selectedData
+    ? {
+        ...selectedData,
+        title: normalizedCategory.toUpperCase(),
+      }
+    : normalizedCategory
+    ? {
+        ...defaultData,
+        title: normalizedCategory.toUpperCase(),
+        number: "05",
+        description: `Eksploro produktet e kategorisë ${normalizedCategory} në ProteinFitness.`,
+      }
+    : defaultData;
+
+  const isCategory = Boolean(normalizedCategory);
 
   return (
-    <section className="relative overflow-hidden bg-[#050505] text-white">
+    <section
+      id="shop-hero"
+      className="relative isolate overflow-hidden bg-[#080808] text-white"
+    >
+      {/* ====================================== */}
+      {/* TOP ORANGE ACCENT */}
+      {/* ====================================== */}
 
-      {/* BACKGROUND GLOW */}
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -left-40 top-0 h-[420px] w-[420px] rounded-full bg-white/[0.03] blur-[150px]" />
+      <div className="absolute inset-x-0 top-0 z-20 h-px bg-gradient-to-r from-transparent via-[#FF7900]/70 to-transparent" />
 
-        <div className="absolute right-0 top-0 h-[300px] w-[300px] rounded-full bg-[#CE2B37]/[0.025] blur-[140px]" />
-      </div>
+      {/* ====================================== */}
+      {/* MAIN HERO */}
+      {/* ====================================== */}
 
-      <div className="relative mx-auto max-w-[1500px]">
+      <div className="relative mx-auto max-w-[1600px]">
 
-        {/* HERO */}
-        <div className="grid min-h-[390px] lg:grid-cols-[1.05fr_0.95fr]">
+        <div className="relative grid min-h-[470px] items-stretch lg:min-h-[500px] lg:grid-cols-[1.08fr_0.92fr]">
 
-          {/* LEFT */}
-          <div className="relative z-10 flex items-center px-5 py-14 sm:px-6 md:py-16 lg:px-10 lg:py-20">
+          {/* ====================================== */}
+          {/* BACKGROUND ON MOBILE */}
+          {/* ====================================== */}
 
-            <div className="w-full">
+          <div className="pointer-events-none absolute inset-0 lg:hidden">
+
+            <img
+              src={data.image}
+              alt=""
+              aria-hidden="true"
+              className="h-full w-full object-cover opacity-35"
+            />
+
+            <div className="absolute inset-0 bg-gradient-to-r from-[#080808] via-[#080808]/90 to-[#080808]/50" />
+
+            <div className="absolute inset-0 bg-gradient-to-t from-[#080808] via-transparent to-[#080808]/30" />
+
+          </div>
+
+          {/* ====================================== */}
+          {/* LEFT CONTENT */}
+          {/* ====================================== */}
+
+          <div className="relative z-10 flex items-center px-5 py-16 sm:px-8 lg:py-20 lg:pl-12 lg:pr-8 xl:pl-16">
+
+            <div className="w-full max-w-[760px]">
 
               {/* BREADCRUMB */}
-              <div className="mb-8 flex items-center gap-3">
+
+              <nav
+                aria-label="Navigimi i faqes"
+                className="mb-10 flex flex-wrap items-center gap-3"
+              >
 
                 <Link
                   to="/"
-                  className="text-[9px] font-bold tracking-[0.3em] text-neutral-600 transition hover:text-white"
+                  className="text-[10px] font-bold uppercase tracking-[0.16em] text-neutral-500 transition-colors hover:text-[#FF7900]"
                 >
-                  HOME
+                  BALLINA
                 </Link>
 
-                <span className="text-neutral-700">
-                  /
-                </span>
+                <ChevronRight
+                  size={13}
+                  className="text-[#FF7900]"
+                />
 
-                <span className="text-[9px] font-bold tracking-[0.3em] text-neutral-400">
-                  {data.title}
-                </span>
+                {isCategory ? (
+                  <>
+                    <Link
+                      to="/shop"
+                      className="text-[10px] font-bold uppercase tracking-[0.16em] text-neutral-500 transition-colors hover:text-[#FF7900]"
+                    >
+                      PRODUKTET
+                    </Link>
 
-              </div>
+                    <ChevronRight
+                      size={13}
+                      className="text-[#FF7900]"
+                    />
 
-              {/* LABEL */}
-              <div className="mb-5 flex items-center gap-4">
+                    <span className="max-w-[180px] truncate text-[10px] font-bold uppercase tracking-[0.1em] text-white sm:max-w-none">
+                      {normalizedCategory}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-white">
+                    PRODUKTET
+                  </span>
+                )}
 
-                <span className="text-[9px] font-black tracking-[0.45em] text-neutral-500">
-                  APAR COLLECTION
-                </span>
+              </nav>
 
-                <div className="flex">
+              {/* EYEBROW */}
 
-                  <span className="h-[2px] w-5 bg-[#009246]" />
+              <div className="mb-6 flex items-center gap-3">
 
-                  <span className="h-[2px] w-5 bg-white/70" />
+                <span className="h-[2px] w-10 bg-[#FF7900]" />
 
-                  <span className="h-[2px] w-5 bg-[#CE2B37]" />
-
-                </div>
-
-              </div>
-
-              {/* TITLE */}
-              <div className="flex items-end gap-5">
-
-                <h1 className="text-[52px] font-black leading-none tracking-[-0.055em] sm:text-[68px] md:text-[78px] lg:text-[88px]">
-                  {data.title}
-                </h1>
-
-                <span className="mb-2 hidden text-[10px] font-bold tracking-[0.3em] text-neutral-700 sm:block">
-                  / {data.number}
-                </span>
-
-              </div>
-
-              {/* DESCRIPTION */}
-              <div className="mt-7 flex max-w-xl items-start gap-5">
-
-                <span className="mt-2 hidden h-10 w-px bg-white/20 sm:block" />
-
-                <p className="max-w-lg text-sm leading-7 text-neutral-400 sm:text-[15px]">
-                  {data.description}
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#FF7900] sm:text-[11px]">
+                  {data.label}
                 </p>
 
               </div>
 
-              {/* CTA */}
-              <Link
-                to="/shop"
-                className="group mt-8 inline-flex items-center gap-3 text-[10px] font-black tracking-[0.25em] text-white"
-              >
-                EXPLORE COLLECTION
+              {/* TITLE */}
 
-                <ArrowUpRight
-                  size={15}
-                  className="transition duration-300 group-hover:-translate-y-0.5 group-hover:translate-x-0.5"
-                />
-              </Link>
+              <h1 className="max-w-[800px] break-words text-[clamp(2.8rem,6vw,5.9rem)] font-black uppercase leading-[1.02] tracking-[-0.055em]">
+
+                <span className="text-white">
+                  {data.title}
+                </span>
+
+                <span className="ml-3 inline-block align-top text-[12px] font-black tracking-normal text-[#FF7900] sm:text-base">
+                  / {data.number}
+                </span>
+
+              </h1>
+
+              {/* ORANGE LINE */}
+
+              <div className="mt-7 flex items-center gap-2">
+
+                <div className="h-[3px] w-16 bg-[#FF7900]" />
+
+                <div className="h-[3px] w-5 bg-[#FF7900]/30" />
+
+              </div>
+
+              {/* DESCRIPTION */}
+
+              <p className="mt-7 max-w-xl text-sm leading-7 text-neutral-300 sm:text-base sm:leading-8">
+                {data.description}
+              </p>
+
+              {/* ACTIONS */}
+
+              <div className="mt-9 flex flex-wrap items-center gap-4">
+
+                <a
+                  href="#shop-category-navigation"
+                  className="group inline-flex min-h-[54px] items-center justify-center gap-4 rounded-lg bg-[#FF7900] px-6 text-[12px] font-black uppercase tracking-[0.08em] text-black shadow-[0_12px_45px_rgba(255,121,0,0.14)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#FFA039]"
+                >
+                  SHIKO KATEGORITË
+
+                  <ArrowRight
+                    size={18}
+                    className="transition-transform duration-300 group-hover:translate-x-1"
+                  />
+                </a>
+
+                {isCategory && (
+                  <Link
+                    to="/shop"
+                    className="group inline-flex min-h-[54px] items-center gap-3 border-b border-white/25 px-2 text-[11px] font-black uppercase tracking-[0.08em] text-white transition-colors hover:border-[#FF7900] hover:text-[#FF7900]"
+                  >
+                    TË GJITHA PRODUKTET
+
+                    <ArrowUpRight
+                      size={17}
+                      className="transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5"
+                    />
+                  </Link>
+                )}
+
+              </div>
 
             </div>
 
           </div>
 
-          {/* RIGHT IMAGE */}
-          <div className="relative hidden min-h-[390px] overflow-hidden lg:block">
+          {/* ====================================== */}
+          {/* RIGHT IMAGE - DESKTOP */}
+          {/* ====================================== */}
 
+          <div className="relative hidden min-h-[500px] overflow-hidden lg:block">
+
+            {/* IMAGE */}
             <img
+              key={data.image}
               src={data.image}
-              alt={data.title}
-              className="absolute inset-0 h-full w-full scale-[1.02] object-cover transition duration-[1600ms] hover:scale-[1.05]"
+              alt="Ambienti sportiv - ProteinFitness"
+              className="absolute inset-0 h-full w-full object-cover transition-transform duration-1000 hover:scale-105"
             />
 
-            {/* FADE LEFT */}
-            <div className="absolute inset-0 bg-gradient-to-r from-[#050505] via-[#050505]/25 to-transparent" />
+            {/* IMAGE OVERLAY */}
+            <div className="absolute inset-0 bg-black/25" />
 
-            {/* DARK OVERLAY */}
-            <div className="absolute inset-0 bg-black/15" />
+            {/* LEFT FADE */}
+            <div className="absolute inset-0 bg-gradient-to-r from-[#080808] via-[#080808]/50 to-transparent" />
 
-            {/* IMAGE NUMBER */}
-            <div className="absolute bottom-7 right-8">
+            {/* BOTTOM FADE */}
+            <div className="absolute inset-0 bg-gradient-to-t from-[#080808]/85 via-transparent to-transparent" />
 
-              <p className="text-[9px] font-bold tracking-[0.4em] text-white/40">
-                APAR / {data.number}
+            {/* ORANGE GLOW */}
+            <div className="pointer-events-none absolute -bottom-36 right-0 h-[350px] w-[350px] rounded-full bg-[#FF7900]/10 blur-[100px]" />
+
+            {/* BRAND LABEL */}
+            <div className="absolute bottom-9 right-10">
+
+              <div className="flex items-center gap-3">
+
+                <span className="h-[2px] w-7 bg-[#FF7900]" />
+
+                <span className="text-[10px] font-extrabold uppercase tracking-[0.24em] text-white/80">
+                  PROTEINFITNESS
+                </span>
+
+              </div>
+
+              <p className="mt-2 text-right text-[9px] font-bold uppercase tracking-[0.2em] text-neutral-400">
+                SPORTS SUPPLEMENTS
               </p>
 
             </div>
@@ -213,44 +341,51 @@ export default function ShopHero() {
 
         </div>
 
-        {/* CATEGORY BAR */}
-        <div className="hidden">
+      </div>
 
-          <div className="flex overflow-x-auto px-5 sm:px-6 lg:px-10">
+      {/* ====================================== */}
+      {/* BOTTOM INFORMATION STRIP */}
+      {/* ====================================== */}
 
-            {categories.map((item) => {
-              const active =
-                item.category === null
-                  ? !category
-                  : category === item.category;
+      <div className="relative border-y border-white/10 bg-[#101010]">
 
-              return (
-                <Link
-                  key={item.name}
-                  to={item.to}
-                  className={`relative flex-shrink-0 px-5 py-5 text-[9px] font-black tracking-[0.22em] transition duration-300 first:pl-0 ${
-                    active
-                      ? "text-white"
-                      : "text-neutral-600 hover:text-white"
-                  }`}
-                >
-                  {item.name}
+        <div className="mx-auto flex max-w-[1500px] flex-wrap items-center justify-between gap-4 px-5 py-5 sm:px-6 lg:px-10">
 
-                  {active && (
-                    <span className="absolute bottom-0 left-5 right-5 h-[2px] bg-white first:left-0" />
-                  )}
-                </Link>
-              );
-            })}
+          <div className="flex items-center gap-3">
+
+            <Dumbbell
+              size={18}
+              strokeWidth={1.8}
+              className="text-[#FF7900]"
+            />
+
+            <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-300">
+              SPORTS SUPPLEMENTS STORE
+            </span>
 
           </div>
+
+          <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-neutral-500">
+            PROTEINFITNESS
+            <span className="mx-2 text-[#FF7900]">/</span>
+            KOSOVË
+          </span>
 
         </div>
 
       </div>
 
-    
-      <ShopCategoryNav dark />
-</section>
+      {/* ====================================== */}
+      {/* CATEGORY NAVIGATION */}
+      {/* ====================================== */}
+
+      <div
+        id="shop-category-navigation"
+        className="scroll-mt-24"
+      >
+        <ShopCategoryNav dark />
+      </div>
+
+    </section>
   );
 }

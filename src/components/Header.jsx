@@ -1,8 +1,5 @@
-import {
-  useEffect,
-  useState,
-} from "react";
 
+import { useEffect, useState } from "react";
 import {
   Search,
   ShoppingBag,
@@ -13,53 +10,52 @@ import {
   ChevronRight,
 } from "lucide-react";
 
-import {
-  Link,
-  useLocation,
-} from "react-router-dom";
-
+import { Link, useLocation } from "react-router-dom";
 import { FaWhatsapp } from "react-icons/fa";
 
 import { useCart } from "../context/CartContext";
 import { useWishlist } from "../context/WishlistContext";
-
 import SearchOverlay from "./SearchOverlay";
 
-const APAR_LOGO =
-  "https://res.cloudinary.com/dmlszpk5l/image/upload/v1790361997/ChatGPT_Image_Sep_25_2026_08_43_05_PM_aqnxkj.png";
+// PROTEINFITNESS CONFIG
+// Logo duhet të jetë në public/proteinfitness-logo.png
 
-const WHATSAPP_NUMBER =
-  "38343977125";
+const LOGO =
+  "https://res.cloudinary.com/dzyn3rfgk/image/upload/v1794083572/Protein_Fitness_Goat_Logo_pt3o0t.png";
+const WHATSAPP_NUMBER = "38343977125";
+
+const NAV_LINKS = [
+  {
+    title: "Ballina",
+    description: "Faqja kryesore",
+    to: "/",
+  },
+  {
+    title: "Produktet",
+    description: "Proteina dhe suplemente",
+    to: "/shop",
+  },
+  {
+    title: "Kontakt",
+    description: "Na kontakto",
+    to: "/#kontakt",
+  },
+];
+
+const formatCount = (count) =>
+  count > 99 ? "99+" : count;
 
 export default function Header() {
-  const {
-    cartCount,
-    openCart,
-  } = useCart();
+  const { cartCount, openCart } = useCart();
+  const { wishlistCount } = useWishlist();
 
-  const {
-    wishlistCount,
-  } = useWishlist();
+  const location = useLocation();
 
-  const location =
-    useLocation();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
 
-  const [
-    menuOpen,
-    setMenuOpen,
-  ] = useState(false);
-
-  const [
-    searchOpen,
-    setSearchOpen,
-  ] = useState(false);
-
-  const [
-    scrolled,
-    setScrolled,
-  ] = useState(false);
-
-  const closeMobileMenu = () => {
+  const closeMenu = () => {
     setMenuOpen(false);
   };
 
@@ -68,765 +64,553 @@ export default function Header() {
     setSearchOpen(true);
   };
 
-  /*
-    SCROLL EFFECT
-  */
+  const openShoppingCart = () => {
+    setMenuOpen(false);
+    openCart();
+  };
+
+  // WHATSAPP
+
+  const whatsappUrl = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(
+    "Përshëndetje ProteinFitness! Dua më shumë informacione për produktet tuaja."
+  )}`;
+
+  const isWishlist = location.pathname === "/wishlist";
+
+  const isActive = (to) => {
+    if (to === "/") {
+      return location.pathname === "/" && !location.hash;
+    }
+
+    if (to === "/shop") {
+      return location.pathname === "/shop";
+    }
+
+    if (to === "/#kontakt") {
+      return location.hash === "#kontakt";
+    }
+
+    return false;
+  };
+
+  // SCROLL EFFECT
+
   useEffect(() => {
-    const handleScroll = () => {
-      setScrolled(window.scrollY > 120);
+    const onScroll = () => {
+      setScrolled(window.scrollY > 100);
     };
 
-    handleScroll();
+    onScroll();
 
-    window.addEventListener(
-      "scroll",
-      handleScroll,
-      { passive: true }
-    );
+    window.addEventListener("scroll", onScroll, {
+      passive: true,
+    });
 
     return () => {
-      window.removeEventListener(
-        "scroll",
-        handleScroll
-      );
+      window.removeEventListener("scroll", onScroll);
     };
   }, []);
 
-  /*
-    LOCK PAGE WHEN MOBILE MENU IS OPEN
-  */
-  useEffect(() => {
-    if (menuOpen) {
-      document.body.style.overflow =
-        "hidden";
-    } else {
-      document.body.style.overflow =
-        "";
-    }
+  // CLOSE MOBILE MENU ON ROUTE CHANGE
 
-    return () => {
-      document.body.style.overflow =
-        "";
-    };
-  }, [menuOpen]);
-
-  /*
-    CLOSE MOBILE MENU AFTER ROUTE CHANGE
-  */
   useEffect(() => {
     setMenuOpen(false);
   }, [
     location.pathname,
     location.search,
+    location.hash,
   ]);
 
-  const searchParams =
-    new URLSearchParams(
-      location.search
-    );
+  // LOCK SCROLL WHEN MOBILE MENU IS OPEN
 
-  const currentCategory =
-    searchParams.get(
-      "category"
-    );
+  useEffect(() => {
+    if (!menuOpen) return;
 
-  const isHome =
-    location.pathname === "/";
+    const previousOverflow = document.body.style.overflow;
 
-  const isShop =
-    location.pathname ===
-      "/shop" &&
-    !currentCategory;
+    document.body.style.overflow = "hidden";
 
-  const isCategory = (
-    category
-  ) =>
-    location.pathname ===
-      "/shop" &&
-    currentCategory ===
-      category;
+    const handleEscape = (event) => {
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+      }
+    };
 
-  const isWishlist =
-    location.pathname ===
-    "/wishlist";
+    window.addEventListener("keydown", handleEscape);
 
-  const desktopLinkClass = (
-    active
-  ) =>
-    `group relative py-3 text-[12px] font-semibold tracking-[0.04em] transition duration-300 ${
-      active
-        ? "text-white"
-        : "text-neutral-400 hover:text-white"
-    }`;
+    return () => {
+      document.body.style.overflow = previousOverflow;
 
-  const mobileLinks = [
-    {
-      name: "Home",
-      subtitle: "Faqja kryesore",
-      to: "/",
-    },
-    {
-      name: "Shop",
-      subtitle: "Të gjitha produktet",
-      to: "/shop",
-    },
-    {
-      name: "Kontakt",
-      subtitle: "Kontakto APAR",
-      to: "/#kontakt",
-    },
-  ];
+      window.removeEventListener(
+        "keydown",
+        handleEscape
+      );
+    };
+  }, [menuOpen]);
 
-  const whatsappUrl =
-    `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(
-      "Përshëndetje APAR, dua më shumë informacione."
-    )}`;
+  // SCROLL TO CONTACT SECTION
+
+  useEffect(() => {
+    if (location.hash !== "#kontakt") return;
+
+    const timer = window.setTimeout(() => {
+      document
+        .getElementById("kontakt")
+        ?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+    }, 80);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [location.pathname, location.hash]);
+
+  // BUTTON STYLES
+
+  const iconButton = `
+    relative
+    flex
+    h-10
+    w-10
+    shrink-0
+    items-center
+    justify-center
+    rounded-xl
+    border
+    border-white/10
+    bg-white/[0.045]
+    text-neutral-200
+    transition-all
+    duration-300
+    hover:border-[#FF7900]/70
+    hover:bg-[#FF7900]
+    hover:text-black
+    focus-visible:outline
+    focus-visible:outline-2
+    focus-visible:outline-offset-2
+    focus-visible:outline-[#FF7900]
+  `;
+
+  const countBadge = `
+    absolute
+    -right-1.5
+    -top-1.5
+    flex
+    h-5
+    min-w-5
+    items-center
+    justify-center
+    rounded-full
+    border-2
+    border-[#080808]
+    bg-[#FF7900]
+    px-1
+    text-[10px]
+    font-black
+    text-black
+  `;
 
   return (
     <>
-      {/* ================================= */}
-      {/* HEADER */}
-      {/* ================================= */}
+      {/* ===================================== */}
+      {/* MAIN HEADER */}
+      {/* ===================================== */}
 
-      <div className="relative h-[74px] lg:h-[84px]">
-      <header
-        className={`z-[80] w-full ${
-          scrolled
-            ? "fixed left-0 right-0 top-0 apar-header-slide-down"
-            : "absolute left-0 right-0 top-0"
-        }`}
-      >
-
-        {/* BRAND LINE */}
-        <div
-          className={`flex w-full transition-all duration-500 ${
+      <div className="relative h-[76px] lg:h-[88px]">
+        <header
+          className={`z-[80] w-full ${
             scrolled
-              ? "h-px opacity-70"
-              : "h-[2px] opacity-100"
+              ? "fixed inset-x-0 top-0"
+              : "absolute inset-x-0 top-0"
           }`}
         >
-          <span className="flex-1 bg-[#009246]" />
-          <span className="flex-1 bg-white" />
-          <span className="flex-1 bg-[#CE2B37]" />
-        </div>
+          {/* ORANGE BRAND LINE */}
 
-        {/* MAIN BAR */}
-        <div
-          className={`relative overflow-hidden border-b text-white transition-all duration-500 ${
-            scrolled
-              ? "border-white/20 bg-black/30 shadow-[0_14px_45px_rgba(0,0,0,0.25)] backdrop-blur-[24px] backdrop-saturate-150"
-              : "border-white/[0.07] bg-black/95 backdrop-blur-xl"
-          }`}
-        >
-          {/* ICE GLASS */}
+          <div className="h-[2px] bg-gradient-to-r from-[#FF7900] via-[#FFBA66] to-[#FF7900]" />
+
+          {/* HEADER BACKGROUND */}
+
           <div
-            className={`pointer-events-none absolute inset-0 transition-opacity duration-500 ${
+            className={`border-b border-white/10 text-white transition-all duration-300 ${
               scrolled
-                ? "opacity-100"
-                : "opacity-0"
+                ? "bg-[#080808]/90 shadow-[0_16px_50px_rgba(0,0,0,0.45)] backdrop-blur-2xl"
+                : "bg-[#080808]/95 backdrop-blur-xl"
             }`}
           >
-            <div className="absolute inset-0 bg-gradient-to-b from-white/[0.10] via-white/[0.025] to-transparent" />
+            {/* HEADER CONTENT */}
 
-            <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/60 to-transparent" />
-
-            <div className="absolute -top-16 left-1/2 h-28 w-[70%] -translate-x-1/2 rounded-full bg-white/[0.05] blur-3xl" />
-          </div>
-
-          {/* CONTENT */}
-          <div
-            className={`relative mx-auto flex max-w-[1500px] items-center justify-between px-4 transition-all duration-500 sm:px-6 lg:px-10 ${
-              scrolled
-                ? "h-[64px] lg:h-[70px]"
-                : "h-[72px] lg:h-[82px]"
-            }`}
-          >
-            {/* LOGO */}
-            <Link
-              to="/"
-              aria-label="APAR Home"
-              className="group relative flex flex-shrink-0 items-center"
+            <div
+              className={`mx-auto flex max-w-[1500px] items-center justify-between gap-2 px-3 transition-all duration-300 sm:gap-4 sm:px-6 lg:px-10 ${
+                scrolled
+                  ? "h-[64px] lg:h-[72px]"
+                  : "h-[74px] lg:h-[86px]"
+              }`}
             >
-              <img
-                src={APAR_LOGO}
-                alt="APAR"
-                className={`object-contain mix-blend-screen transition-all duration-500 group-hover:opacity-80 ${
-                  scrolled
-                    ? "w-[120px] sm:w-[135px] lg:w-[155px]"
-                    : "w-[132px] sm:w-[145px] lg:w-[170px]"
-                }`}
-              />
-            </Link>
+              {/* LOGO */}
 
-            {/* ================================= */}
-            {/* DESKTOP NAV */}
-            {/* ================================= */}
-
-            <nav className="hidden items-center lg:flex">
-
-              <div
-                className={`flex items-center gap-1 border px-3 transition-all duration-500 ${
-                  scrolled
-                    ? "border-white/15 bg-white/[0.055] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl"
-                    : "border-white/[0.07] bg-white/[0.025]"
-                }`}
-              >
-
-                {/* HOME */}
-                <Link
-                  to="/"
-                  className={desktopLinkClass(
-                    isHome
-                  )}
-                >
-                  <span className="relative block px-3">
-                    Home
-
-                    <span
-                      className={`absolute -bottom-[13px] left-3 right-3 h-[2px] transition-all duration-300 ${
-                        isHome
-                          ? "bg-white opacity-100"
-                          : "bg-white opacity-0 group-hover:opacity-40"
-                      }`}
-                    />
-                  </span>
-                </Link>
-
-                {/* SHOP */}
-                <Link
-                  to="/shop"
-                  className={desktopLinkClass(
-                    isShop
-                  )}
-                >
-                  <span className="relative block px-3">
-                    Shop
-
-                    <span
-                      className={`absolute -bottom-[13px] left-3 right-3 h-[2px] transition-all duration-300 ${
-                        isShop
-                          ? "bg-white opacity-100"
-                          : "bg-white opacity-0 group-hover:opacity-40"
-                      }`}
-                    />
-                  </span>
-                </Link>
-
-
-
-                {/* CONTACT */}
-                <a
-                  href="/#kontakt"
-                  className="group relative py-3 text-[12px] font-semibold tracking-[0.04em] text-neutral-400 transition duration-300 hover:text-white"
-                >
-                  <span className="relative block px-3">
-                    Kontakt
-                  </span>
-                </a>
-
-              </div>
-
-            </nav>
-
-            {/* ================================= */}
-            {/* ACTIONS */}
-            {/* ================================= */}
-
-            <div className="flex items-center gap-2">
-
-              {/* SEARCH */}
-              <button
-                type="button"
-                onClick={
-                  openSearch
-                }
-                aria-label="Kërko produkte"
-                title="Kërko"
-                className={`group flex h-10 w-10 items-center justify-center border text-neutral-300 transition-all duration-500 hover:border-white/40 hover:bg-white hover:text-black lg:h-11 lg:w-11 ${
-                  scrolled
-                    ? "border-white/15 bg-white/[0.06] backdrop-blur-xl"
-                    : "border-white/10 bg-white/[0.025]"
-                }`}
-              >
-                <Search
-                  size={18}
-                  className="transition duration-300 group-hover:scale-105"
-                />
-              </button>
-
-              {/* WISHLIST */}
               <Link
-                to="/wishlist"
-                aria-label="Wishlist"
-                title="Wishlist"
-                className={`group relative flex h-10 w-10 items-center justify-center border transition-all duration-500 lg:h-11 lg:w-11 ${
-                  isWishlist
-                    ? "border-white bg-white text-black"
-                    : scrolled
-                    ? "border-white/15 bg-white/[0.06] text-neutral-300 backdrop-blur-xl hover:border-white/40 hover:bg-white hover:text-black"
-                    : "border-white/10 bg-white/[0.025] text-neutral-300 hover:border-white/40 hover:bg-white hover:text-black"
-                }`}
+                to="/"
+                aria-label="ProteinFitness - Ballina"
+                className="group flex min-w-0 shrink-0 items-center"
               >
-                <Heart
-                  size={18}
-                  strokeWidth={1.7}
-                  fill={
-                    isWishlist
-                      ? "currentColor"
-                      : "none"
-                  }
-                  className="transition duration-300 group-hover:scale-110"
+                <img
+                  src={LOGO}
+                  alt="ProteinFitness - Sports Supplements"
+                  className={`w-[128px] object-contain transition-all duration-300 group-hover:opacity-80 sm:w-[158px] lg:w-[205px] ${
+                    scrolled
+                      ? "h-[57px] lg:h-[67px]"
+                      : "h-[65px] lg:h-[80px]"
+                  }`}
                 />
-
-                {wishlistCount >
-                  0 && (
-                  <span className="absolute -right-2 -top-2 flex h-[21px] min-w-[21px] items-center justify-center rounded-full border-2 border-black bg-white px-1 text-[9px] font-black text-black shadow-xl">
-                    {wishlistCount >
-                    99
-                      ? "99+"
-                      : wishlistCount}
-                  </span>
-                )}
               </Link>
 
-              {/* CART */}
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuOpen(
-                    false
-                  );
+              {/* ===================================== */}
+              {/* DESKTOP NAVIGATION */}
+              {/* ===================================== */}
 
-                  openCart();
-                }}
-                aria-label="Hap shportën"
-                title="Shporta"
-                className={`group relative flex h-10 w-10 items-center justify-center border text-neutral-300 transition-all duration-500 hover:border-white/40 hover:bg-white hover:text-black lg:h-11 lg:w-11 ${
-                  scrolled
-                    ? "border-white/15 bg-white/[0.06] backdrop-blur-xl"
-                    : "border-white/10 bg-white/[0.025]"
-                }`}
+              <nav
+                className="hidden items-center gap-1 rounded-xl border border-white/10 bg-white/[0.035] p-1 lg:flex"
+                aria-label="Navigimi kryesor"
               >
-                <ShoppingBag
-                  size={18}
-                  className="transition duration-300 group-hover:scale-105"
-                />
+                {NAV_LINKS.map((link) => (
+                  <Link
+                    key={link.to}
+                    to={link.to}
+                    aria-current={
+                      isActive(link.to)
+                        ? "page"
+                        : undefined
+                    }
+                    className={`relative rounded-lg px-5 py-3 text-[13px] font-semibold tracking-wide transition-colors ${
+                      isActive(link.to)
+                        ? "bg-[#FF7900]/15 text-[#FF980F]"
+                        : "text-neutral-300 hover:bg-white/5 hover:text-white"
+                    }`}
+                  >
+                    {link.title}
 
-                {cartCount > 0 && (
-                  <span className="absolute -right-2 -top-2 flex h-[21px] min-w-[21px] items-center justify-center rounded-full border-2 border-black bg-white px-1 text-[9px] font-black text-black shadow-xl">
-                    {cartCount >
-                    99
-                      ? "99+"
-                      : cartCount}
-                  </span>
-                )}
-              </button>
+                    {isActive(link.to) && (
+                      <span className="absolute inset-x-5 bottom-0 h-[2px] rounded-full bg-[#FF7900]" />
+                    )}
+                  </Link>
+                ))}
+              </nav>
 
-              {/* MOBILE MENU */}
-              <button
-                type="button"
-                onClick={() =>
-                  setMenuOpen(true)
-                }
-                aria-label="Hap menunë"
-                className={`group flex h-10 w-10 items-center justify-center border text-neutral-300 transition-all duration-500 hover:border-white/40 hover:bg-white hover:text-black lg:hidden ${
-                  scrolled
-                    ? "border-white/15 bg-white/[0.06] backdrop-blur-xl"
-                    : "border-white/10 bg-white/[0.025]"
-                }`}
-              >
-                <Menu
-                  size={20}
-                />
-              </button>
+              {/* ===================================== */}
+              {/* HEADER ACTIONS */}
+              {/* ===================================== */}
 
+              <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+                {/* SEARCH */}
+
+                <button
+                  type="button"
+                  onClick={openSearch}
+                  aria-label="Kërko produkte"
+                  title="Kërko produkte"
+                  className={iconButton}
+                >
+                  <Search
+                    size={19}
+                    strokeWidth={1.8}
+                  />
+                </button>
+
+                {/* WISHLIST */}
+
+                <Link
+                  to="/wishlist"
+                  aria-label="Produktet e preferuara"
+                  title="Të preferuarat"
+                  className={`${iconButton} hidden sm:flex ${
+                    isWishlist
+                      ? "border-[#FF7900] text-[#FF7900]"
+                      : ""
+                  }`}
+                >
+                  <Heart
+                    size={19}
+                    strokeWidth={1.8}
+                    fill={
+                      isWishlist
+                        ? "currentColor"
+                        : "none"
+                    }
+                  />
+
+                  {wishlistCount > 0 && (
+                    <span className={countBadge}>
+                      {formatCount(wishlistCount)}
+                    </span>
+                  )}
+                </Link>
+
+                {/* SHOPPING CART */}
+
+                <button
+                  type="button"
+                  onClick={openShoppingCart}
+                  aria-label="Hap shportën"
+                  title="Shporta"
+                  className={iconButton}
+                >
+                  <ShoppingBag
+                    size={19}
+                    strokeWidth={1.8}
+                  />
+
+                  {cartCount > 0 && (
+                    <span className={countBadge}>
+                      {formatCount(cartCount)}
+                    </span>
+                  )}
+                </button>
+
+                {/* MOBILE MENU BUTTON */}
+
+                <button
+                  type="button"
+                  onClick={() => setMenuOpen(true)}
+                  aria-label="Hap menunë"
+                  aria-expanded={menuOpen}
+                  aria-controls="proteinfitness-mobile-menu"
+                  className={`${iconButton} lg:hidden`}
+                >
+                  <Menu
+                    size={21}
+                    strokeWidth={1.8}
+                  />
+                </button>
+              </div>
             </div>
-
           </div>
-
-        </div>
-
-      </header>
+        </header>
       </div>
 
-      {/* ================================= */}
+      {/* ===================================== */}
       {/* MOBILE OVERLAY */}
-      {/* ================================= */}
+      {/* ===================================== */}
 
       <div
-        onClick={
-          closeMobileMenu
-        }
-        className={`fixed inset-0 z-[90] bg-black/70 backdrop-blur-sm transition-opacity duration-300 lg:hidden ${
+        aria-hidden="true"
+        onClick={closeMenu}
+        className={`fixed inset-0 z-[90] bg-black/80 backdrop-blur-sm transition-opacity duration-300 lg:hidden ${
           menuOpen
             ? "visible opacity-100"
-            : "invisible opacity-0"
+            : "invisible pointer-events-none opacity-0"
         }`}
       />
 
-      {/* ================================= */}
+      {/* ===================================== */}
       {/* MOBILE DRAWER */}
-      {/* ================================= */}
+      {/* ===================================== */}
 
       <aside
-        className={`fixed right-0 top-0 z-[100] flex h-[100dvh] w-full max-w-[390px] flex-col border-l border-white/10 bg-[#070707] text-white transition-transform duration-500 ease-out lg:hidden ${
+        id="proteinfitness-mobile-menu"
+        aria-label="Menu mobile"
+        aria-hidden={!menuOpen}
+        className={`fixed right-0 top-0 z-[100] flex h-[100dvh] w-full max-w-[390px] flex-col border-l border-[#FF7900]/20 bg-[#090909] text-white shadow-2xl transition-transform duration-300 lg:hidden ${
           menuOpen
             ? "translate-x-0"
             : "invisible pointer-events-none translate-x-full"
         }`}
       >
+        {/* ORANGE LINE */}
 
-        {/* BRAND LINE */}
-        <div className="flex h-[2px] w-full">
-
-          <span className="flex-1 bg-[#009246]" />
-
-          <span className="flex-1 bg-white" />
-
-          <span className="flex-1 bg-[#CE2B37]" />
-
-        </div>
+        <div className="h-[3px] w-full bg-[#FF7900]" />
 
         {/* DRAWER HEADER */}
-        <div className="flex h-[78px] items-center justify-between border-b border-white/10 px-5">
 
+        <div className="flex h-[88px] shrink-0 items-center justify-between border-b border-white/10 px-5">
           <Link
             to="/"
-            onClick={
-              closeMobileMenu
-            }
+            onClick={closeMenu}
+            aria-label="ProteinFitness - Ballina"
           >
             <img
-              src={APAR_LOGO}
-              alt="APAR"
-              className="w-[145px] object-contain mix-blend-screen"
+              src={LOGO}
+              alt="ProteinFitness"
+              className="h-[75px] w-[158px] object-contain"
             />
           </Link>
 
           <button
             type="button"
-            onClick={
-              closeMobileMenu
-            }
+            onClick={closeMenu}
             aria-label="Mbyll menunë"
-            className="flex h-10 w-10 items-center justify-center border border-white/10 bg-white/[0.03] text-white transition hover:bg-white hover:text-black"
+            className={iconButton}
           >
-            <X size={19} />
+            <X size={21} />
           </button>
-
         </div>
 
+        {/* ===================================== */}
         {/* BRAND MESSAGE */}
-        <div className="border-b border-white/10 px-5 py-5">
+        {/* ===================================== */}
 
-          <div className="flex items-center gap-3">
-
-            <span className="h-[2px] w-7 bg-[#009246]" />
-
-            <p className="text-[9px] font-bold tracking-[0.4em] text-neutral-500">
-              WEAR YOUR STORY
-            </p>
-
-            <span className="h-[2px] w-7 bg-[#CE2B37]" />
-
-          </div>
-
-          <p className="mt-3 text-sm leading-6 text-neutral-400">
-            Zbulo koleksionin APAR
-            dhe krijo stilin tënd.
+        <div className="shrink-0 border-b border-white/10 px-5 py-5">
+          <p className="text-[10px] font-extrabold tracking-[0.27em] text-[#FF7900]">
+            SPORTS SUPPLEMENTS
           </p>
 
+          <p className="mt-2 text-sm leading-6 text-neutral-400">
+            Proteina, kreatinë, vitamina dhe aksesorë
+            fitnesi. Zbulo produktet e ProteinFitness.
+          </p>
         </div>
 
-        {/* MENU LINKS */}
-        <div className="flex-1 overflow-y-auto px-5 py-3">
+        {/* ===================================== */}
+        {/* MOBILE NAVIGATION */}
+        {/* ===================================== */}
 
-          <nav>
+        <nav
+          className="min-h-0 flex-1 overflow-y-auto px-5 py-3"
+          aria-label="Navigimi në telefon"
+        >
+          {NAV_LINKS.map((link, index) => (
+            <Link
+              key={link.to}
+              to={link.to}
+              onClick={closeMenu}
+              className="group flex items-center justify-between border-b border-white/10 py-5 transition-colors hover:border-[#FF7900]/60"
+            >
+              <div className="flex items-center gap-4">
+                <span className="text-xs font-bold text-[#FF7900]">
+                  {String(index + 1).padStart(
+                    2,
+                    "0"
+                  )}
+                </span>
 
-            {mobileLinks.map(
-              (
-                item,
-                index
-              ) => {
-                const wishlistItem =
-                  item.to ===
-                  "/wishlist";
+                <div>
+                  <p className="text-base font-semibold text-white transition group-hover:text-[#FF970D]">
+                    {link.title}
+                  </p>
 
-                return (
-                  <Link
-                    key={
-                      item.name
-                    }
-                    to={
-                      item.to
-                    }
-                    onClick={
-                      closeMobileMenu
-                    }
-                    className={`group flex items-center justify-between border-b py-4 transition ${
-                      wishlistItem &&
-                      isWishlist
-                        ? "border-white/15 bg-white/[0.025]"
-                        : "border-white/[0.07]"
-                    }`}
-                  >
+                  <p className="mt-1 text-xs text-neutral-500">
+                    {link.description}
+                  </p>
+                </div>
+              </div>
 
-                    <div className="flex items-start gap-4">
+              <ChevronRight
+                size={18}
+                className="text-neutral-500 transition-transform group-hover:translate-x-1 group-hover:text-[#FF7900]"
+              />
+            </Link>
+          ))}
+        </nav>
 
-                      <span className="mt-1 text-[9px] font-semibold text-neutral-700">
-                        {String(
-                          index +
-                            1
-                        ).padStart(
-                          2,
-                          "0"
-                        )}
-                      </span>
+        {/* ===================================== */}
+        {/* MOBILE DRAWER BOTTOM */}
+        {/* ===================================== */}
 
-                      <div>
+        <div className="shrink-0 border-t border-white/10 bg-[#050505] px-5 py-4">
+          {/* WHATSAPP BUTTON */}
 
-                        <div className="flex items-center gap-2">
-
-                          {wishlistItem && (
-                            <Heart
-                              size={14}
-                              fill={
-                                wishlistCount >
-                                0
-                                  ? "currentColor"
-                                  : "none"
-                              }
-                              className={
-                                wishlistCount >
-                                0
-                                  ? "text-white"
-                                  : "text-neutral-500"
-                              }
-                            />
-                          )}
-
-                          <p className="text-[15px] font-semibold text-neutral-200 transition group-hover:text-white">
-                            {
-                              item.name
-                            }
-                          </p>
-
-                          {wishlistItem &&
-                            wishlistCount >
-                              0 && (
-                              <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-white px-1 text-[9px] font-black text-black">
-                                {
-                                  wishlistCount
-                                }
-                              </span>
-                            )}
-
-                        </div>
-
-                        <p className="mt-1 text-[11px] text-neutral-600">
-                          {
-                            item.subtitle
-                          }
-                        </p>
-
-                      </div>
-
-                    </div>
-
-                    <ChevronRight
-                      size={17}
-                      className="text-neutral-700 transition duration-300 group-hover:translate-x-1 group-hover:text-white"
-                    />
-
-                  </Link>
-                );
-              }
-            )}
-
-          </nav>
-
-        </div>
-
-        {/* ================================= */}
-        {/* DRAWER BOTTOM */}
-        {/* ================================= */}
-
-        <div className="border-t border-white/10 bg-black px-5 py-5">
-
-          {/* WHATSAPP */}
           <a
-            href={
-              whatsappUrl
-            }
+            href={whatsappUrl}
             target="_blank"
             rel="noopener noreferrer"
-            style={{
-              color:
-                "#050505",
-            }}
-            className="flex w-full items-center justify-between bg-white px-5 py-4 text-sm font-black transition hover:bg-neutral-200"
+            className="flex items-center justify-between gap-2 rounded-xl bg-[#FF7900] px-4 py-4 text-[13px] font-extrabold text-black transition hover:bg-[#FF9D38]"
           >
-            <div className="flex items-center gap-3">
+            <span className="flex items-center gap-2">
+              <FaWhatsapp size={21} />
 
-              <span
-                className="flex h-8 w-8 items-center justify-center bg-black"
-                style={{
-                  color:
-                    "#ffffff",
-                }}
-              >
-                <FaWhatsapp
-                  size={16}
-                />
-              </span>
+              KONTAKTO PROTEINFITNESS
+            </span>
 
-              <span
-                style={{
-                  color:
-                    "#050505",
-                }}
-              >
-                KONTAKTO APAR
-              </span>
-
-            </div>
-
-            <ArrowUpRight
-              size={17}
-              style={{
-                color:
-                  "#050505",
-              }}
-            />
-
+            <ArrowUpRight size={19} />
           </a>
 
+          {/* ===================================== */}
           {/* QUICK ACTIONS */}
-          <div className="mt-3 grid grid-cols-3 gap-2">
+          {/* ===================================== */}
 
+          <div className="mt-3 grid grid-cols-3 gap-2">
             {/* SEARCH */}
+
             <button
               type="button"
-              onClick={
-                openSearch
-              }
-              className="flex min-h-[54px] flex-col items-center justify-center gap-1.5 border border-white/10 bg-white/[0.02] text-neutral-400 transition hover:border-white/25 hover:bg-white/[0.05] hover:text-white"
+              onClick={openSearch}
+              className="flex min-h-[62px] flex-col items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] text-neutral-300 transition hover:border-[#FF7900]/60"
             >
-              <Search
-                size={15}
-              />
+              <Search size={17} />
 
-              <span className="text-[9px] font-bold tracking-[0.08em]">
+              <span className="text-[10px] font-bold">
                 KËRKO
               </span>
             </button>
 
             {/* WISHLIST */}
+
             <Link
               to="/wishlist"
-              onClick={
-                closeMobileMenu
-              }
-              className={`relative flex min-h-[54px] flex-col items-center justify-center gap-1.5 border transition ${
-                isWishlist
-                  ? "border-white/35 bg-white text-black"
-                  : "border-white/10 bg-white/[0.02] text-neutral-400 hover:border-white/25 hover:bg-white/[0.05] hover:text-white"
-              }`}
+              onClick={closeMenu}
+              className="relative flex min-h-[62px] flex-col items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] text-neutral-300 transition hover:border-[#FF7900]/60"
             >
-              <Heart
-                size={15}
-                fill={
-                  wishlistCount >
-                  0
-                    ? "currentColor"
-                    : "none"
-                }
-              />
+              <Heart size={17} />
 
-              <span className="text-[9px] font-bold tracking-[0.08em]">
-                WISHLIST
+              <span className="text-[9px] font-bold">
+                TË PREFERUARAT
               </span>
 
-              {wishlistCount >
-                0 && (
-                <span
-                  className={`absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[9px] font-black shadow-lg ${
-                    isWishlist
-                      ? "bg-black text-white"
-                      : "bg-white text-black"
-                  }`}
-                >
-                  {
-                    wishlistCount
-                  }
+              {wishlistCount > 0 && (
+                <span className="absolute right-1 top-1 rounded-full bg-[#FF7900] px-1.5 text-[9px] font-extrabold text-black">
+                  {formatCount(wishlistCount)}
                 </span>
               )}
             </Link>
 
-            {/* CART */}
+            {/* SHOPPING CART */}
+
             <button
               type="button"
-              onClick={() => {
-                closeMobileMenu();
-
-                openCart();
-              }}
-              className="relative flex min-h-[54px] flex-col items-center justify-center gap-1.5 border border-white/10 bg-white/[0.02] text-neutral-400 transition hover:border-white/25 hover:bg-white/[0.05] hover:text-white"
+              onClick={openShoppingCart}
+              className="relative flex min-h-[62px] flex-col items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] text-neutral-300 transition hover:border-[#FF7900]/60"
             >
-              <ShoppingBag
-                size={15}
-              />
+              <ShoppingBag size={17} />
 
-              <span className="text-[9px] font-bold tracking-[0.08em]">
+              <span className="text-[10px] font-bold">
                 SHPORTA
               </span>
 
               {cartCount > 0 && (
-                <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-white px-1 text-[9px] font-black text-black shadow-lg">
-                  {
-                    cartCount
-                  }
+                <span className="absolute right-1 top-1 rounded-full bg-[#FF7900] px-1.5 text-[9px] font-extrabold text-black">
+                  {formatCount(cartCount)}
                 </span>
               )}
             </button>
-
           </div>
 
-          {/* MINI STATUS */}
-          <div className="mt-4 flex items-center justify-between border-t border-white/[0.07] pt-4">
+          {/* ===================================== */}
+          {/* STORE STATUS */}
+          {/* ===================================== */}
 
-            <p className="text-[8px] font-semibold tracking-[0.25em] text-neutral-700">
-              APAR STORE
-            </p>
+          <div className="mt-4 flex items-center justify-between border-t border-white/10 pt-4">
+            <span className="text-[9px] font-semibold tracking-[0.16em] text-neutral-500">
+              PROTEINFITNESS STORE
+            </span>
 
-            <div className="flex items-center gap-2">
+            <span className="flex items-center gap-2 text-[9px] font-semibold tracking-wide text-neutral-500">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#FF7900]" />
 
-              <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-
-              <p className="text-[8px] font-semibold tracking-[0.16em] text-neutral-600">
-                ONLINE
-              </p>
-
-            </div>
-
+              ONLINE
+            </span>
           </div>
-
         </div>
-
       </aside>
 
+      {/* ===================================== */}
       {/* SEARCH OVERLAY */}
-      <SearchOverlay
-        open={
-          searchOpen
-        }
-        onClose={() =>
-          setSearchOpen(
-            false
-          )
-        }
-      />
+      {/* ===================================== */}
 
+      <SearchOverlay
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+      />
     </>
   );
 }

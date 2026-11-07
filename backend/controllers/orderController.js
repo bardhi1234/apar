@@ -1,73 +1,263 @@
-const pool = require("../db/db");
 
-const SHIPPING = {
+const pool = require("../db/db");
+const { randomBytes } = require("crypto");
+
+// ======================================
+// PROTEINFITNESS - ORDER CONTROLLER
+// ======================================
+
+const SHIPPING = Object.freeze({
   "Kosovë": 2.5,
   "Shqipëri": 5,
   "Maqedoni e Veriut": 5,
-};
+});
 
-function makeOrderNumber() {
-  return `APAR-${Date.now().toString(36).toUpperCase()}`;
+const ALLOWED_STATUSES = new Set([
+  "pending",
+  "confirmed",
+  "shipped",
+  "delivered",
+  "cancelled",
+]);
+
+// ======================================
+// HELPERS
+// ======================================
+
+function requestError(message, status = 400) {
+  const error = new Error(message);
+  error.statusCode = status;
+  return error;
 }
 
-async function createOrder(req, res) {
-  const client = await pool.connect();
+function requiredText(value, field, maxLength) {
+  if (typeof value !== "string" || !value.trim()) {
+    throw requestError(`${field} është e detyrueshme.`);
+  }
+
+  const text = value.trim();
+
+  if (text.length > maxLength) {
+    throw requestError(`${field} është shumë e gjatë.`);
+  }
+
+  return text;
+}
+
+function optionalText(value, field, maxLength) {
+  if (
+    value === undefined ||
+    value === null ||
+    value === ""
+  ) {
+    return "";
+  }
+
+  if (typeof value !== "string") {
+    throw requestError(`${field} nuk është valide.`);
+  }
+
+  const text = value.trim();
+
+  if (text.length > maxLength) {
+    throw requestError(`${field} është shumë e gjatë.`);
+  }
+
+  return text;
+}
+
+function toCents(value) {
+  const price = Number(value);
+
+  if (!Number.isFinite(price) || price < 0) {
+    throw new Error(
+      "Çmimi i produktit në databazë nuk është valid."
+    );
+  }
+
+  return Math.round(
+    (price + Number.EPSILON) * 100
+  );
+}
+
+function fromCents(cents) {
+  return Number((cents / 100).toFixed(2));
+}
+
+function makeOrderNumber() {
+  const timestamp = Date.now()
+    .toString(36)
+    .toUpperCase();
+
+  const random = randomBytes(4)
+    .toString("hex")
+    .toUpperCase();
+
+  return `PF-${timestamp}-${random}`;
+}
+
+async function safeRollback(client) {
+  if (!client) return;
 
   try {
-    const {
-      firstName,
-      lastName,
-      phone,
-      country = "Kosovë",
-      city,
-      address,
-      note = "",
-      items,
-    } = req.body;
+    await client.query("ROLLBACK");
+  } catch (error) {
+    console.error("ROLLBACK ERROR:", error);
+  }
+}
 
+// ======================================
+// CREATE ORDER
+// POST /api/orders
+// ======================================
+
+async function createOrder(req, res) {
+  let client;
+  let inTransaction = false;
+
+  try {
+    const body = req.body || {};
+
+    const firstName = requiredText(
+      body.firstName,
+      "Emri",
+      100
+    );
+
+    const lastName = requiredText(
+      body.lastName,
+      "Mbiemri",
+      100
+    );
+
+    const phone = requiredText(
+      body.phone,
+      "Telefoni",
+      40
+    );
+
+    const city = requiredText(
+      body.city,
+      "Qyteti",
+      120
+    );
+
+    const address = requiredText(
+      body.address,
+      "Adresa",
+      250
+    );
+
+    const note = optionalText(
+      body.note,
+      "Shënimi",
+      1000
+    );
+
+    const country =
+      body.country ?? "Kosovë";
+
+    const items = body.items;
+
+    // VALIDATE SHIPPING COUNTRY
     if (
-      !firstName?.trim() ||
-      !lastName?.trim() ||
-      !phone?.trim() ||
-      !city?.trim() ||
-      !address?.trim()
+      !Object.prototype.hasOwnProperty.call(
+        SHIPPING,
+        country
+      )
     ) {
-      return res.status(400).json({
-        success: false,
-        message: "Plotëso të gjitha të dhënat e klientit.",
-      });
-    }
-
-    if (!Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Shporta është bosh.",
-      });
-    }
-
-    if (!(country in SHIPPING)) {
-      return res.status(400).json({
-        success: false,
-        message: "Shteti nuk është valid.",
-      });
-    }
-
-    await client.query("BEGIN");
-
-    let subtotal = 0;
-    const preparedItems = [];
-
-    for (const item of items) {
-      const productId = Number(item.productId);
-      const quantity = Math.max(
-        1,
-        Number(item.quantity) || 1
+      throw requestError(
+        "Shteti nuk është valid."
       );
+    }
 
-      if (!productId) {
-        throw new Error("Produkti nuk është valid.");
+    // VALIDATE CART
+    if (
+      !Array.isArray(items) ||
+      items.length === 0
+    ) {
+      throw requestError(
+        "Shporta është bosh."
+      );
+    }
+
+    if (items.length > 100) {
+      throw requestError(
+        "Shporta ka shumë produkte."
+      );
+    }
+
+    // VALIDATE EACH ITEM
+    const validatedItems = items.map((item) => {
+      if (
+        !item ||
+        typeof item !== "object"
+      ) {
+        throw requestError(
+          "Një produkt në shportë nuk është valid."
+        );
       }
 
+      const productId = Number(item.productId);
+      const quantity = Number(item.quantity);
+
+      if (
+        !Number.isSafeInteger(productId) ||
+        productId <= 0
+      ) {
+        throw requestError(
+          "ID e produktit nuk është valide."
+        );
+      }
+
+      if (
+        !Number.isSafeInteger(quantity) ||
+        quantity <= 0
+      ) {
+        throw requestError(
+          "Sasia duhet të jetë numër i plotë pozitiv."
+        );
+      }
+
+      return {
+        productId,
+        quantity,
+
+        // Compatibility with existing cart
+        size:
+          optionalText(
+            item.size,
+            "Pesha/Paketimi",
+            100
+          ) || null,
+
+        color:
+          optionalText(
+            item.color,
+            "Shija/Varianti",
+            100
+          ) || null,
+      };
+    });
+
+    // ==================================
+    // START DATABASE TRANSACTION
+    // ==================================
+
+    client = await pool.connect();
+
+    await client.query("BEGIN");
+    inTransaction = true;
+
+    let subtotalCents = 0;
+
+    const preparedItems = [];
+
+    // ==================================
+    // VERIFY PRODUCTS AND STOCK
+    // ==================================
+
+    for (const item of validatedItems) {
       const result = await client.query(
         `
         SELECT
@@ -80,54 +270,96 @@ async function createOrder(req, res) {
             SELECT pi.url
             FROM product_images pi
             WHERE pi.product_id = p.id
-            ORDER BY pi.sort_order ASC, pi.id ASC
+            ORDER BY
+              pi.sort_order ASC,
+              pi.id ASC
             LIMIT 1
           ) AS image
         FROM products p
         WHERE p.id = $1
-        FOR UPDATE
+        FOR UPDATE OF p
         `,
-        [productId]
+        [item.productId]
       );
 
       if (result.rows.length === 0) {
-        throw new Error(
-          `Produkti me ID ${productId} nuk ekziston.`
+        throw requestError(
+          `Produkti me ID ${item.productId} nuk ekziston.`,
+          404
         );
       }
 
       const product = result.rows[0];
 
       if (!product.active) {
-        throw new Error(
-          `${product.name} nuk është aktiv.`
+        throw requestError(
+          `${product.name} nuk është aktiv.`,
+          409
         );
       }
 
-      if (Number(product.stock) < quantity) {
-        throw new Error(
-          `Nuk ka stok të mjaftueshëm për ${product.name}.`
+      if (
+        Number(product.stock) <
+        item.quantity
+      ) {
+        throw requestError(
+          `Nuk ka stok të mjaftueshëm për ${product.name}.`,
+          409
         );
       }
 
-      const price = Number(product.price);
+      // PRICE FROM DATABASE
+      const priceCents = toCents(
+        product.price
+      );
 
-      subtotal += price * quantity;
+      subtotalCents +=
+        priceCents * item.quantity;
+
+      // UPDATE STOCK INSIDE TRANSACTION
+      // This also handles repeated product IDs.
+      await client.query(
+        `
+        UPDATE products
+        SET
+          stock = stock - $1,
+          updated_at = NOW()
+        WHERE id = $2
+        `,
+        [
+          item.quantity,
+          item.productId,
+        ]
+      );
 
       preparedItems.push({
         productId: product.id,
         name: product.name,
         image: product.image,
-        price,
-        quantity,
-        size: item.size || null,
-        color: item.color || null,
+        price: fromCents(priceCents),
+        quantity: item.quantity,
+        size: item.size,
+        color: item.color,
       });
     }
 
-    const shipping = SHIPPING[country];
-    const total = subtotal + shipping;
-    const orderNumber = makeOrderNumber();
+    // ==================================
+    // CALCULATE TOTAL
+    // ==================================
+
+    const shippingCents = toCents(
+      SHIPPING[country]
+    );
+
+    const totalCents =
+      subtotalCents + shippingCents;
+
+    const orderNumber =
+      makeOrderNumber();
+
+    // ==================================
+    // INSERT ORDER
+    // ==================================
 
     const orderResult = await client.query(
       `
@@ -154,20 +386,24 @@ async function createOrder(req, res) {
       `,
       [
         orderNumber,
-        firstName.trim(),
-        lastName.trim(),
-        phone.trim(),
+        firstName,
+        lastName,
+        phone,
         country,
-        city.trim(),
-        address.trim(),
-        note.trim(),
-        subtotal,
-        shipping,
-        total,
+        city,
+        address,
+        note,
+        fromCents(subtotalCents),
+        fromCents(shippingCents),
+        fromCents(totalCents),
       ]
     );
 
     const order = orderResult.rows[0];
+
+    // ==================================
+    // INSERT ORDER ITEMS
+    // ==================================
 
     for (const item of preparedItems) {
       await client.query(
@@ -182,7 +418,9 @@ async function createOrder(req, res) {
           size,
           color
         )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        VALUES (
+          $1,$2,$3,$4,$5,$6,$7,$8
+        )
         `,
         [
           order.id,
@@ -195,27 +433,22 @@ async function createOrder(req, res) {
           item.color,
         ]
       );
-
-      await client.query(
-        `
-        UPDATE products
-        SET
-          stock = stock - $1,
-          updated_at = NOW()
-        WHERE id = $2
-        `,
-        [
-          item.quantity,
-          item.productId,
-        ]
-      );
     }
+
+    // ==================================
+    // COMMIT
+    // ==================================
 
     await client.query("COMMIT");
 
-    res.status(201).json({
+    inTransaction = false;
+
+    return res.status(201).json({
       success: true,
-      message: "Porosia u krijua me sukses.",
+
+      message:
+        "Porosia u regjistrua me sukses.",
+
       order: {
         id: order.id,
         orderNumber: order.order_number,
@@ -226,29 +459,43 @@ async function createOrder(req, res) {
       },
     });
   } catch (error) {
-    await client.query("ROLLBACK");
+    if (inTransaction) {
+      await safeRollback(client);
+    }
 
     console.error(
       "CREATE ORDER ERROR:",
       error
     );
 
-    res.status(400).json({
-      success: false,
-      message:
-        error.message ||
-        "Porosia nuk u krijua.",
-    });
+    return res
+      .status(error.statusCode || 500)
+      .json({
+        success: false,
+
+        message: error.statusCode
+          ? error.message
+          : "Porosia nuk u krijua. Provo përsëri.",
+      });
   } finally {
-    client.release();
+    if (client) {
+      client.release();
+    }
   }
 }
+
+// ======================================
+// GET ALL ORDERS
+// GET /api/orders
+// ADMIN ONLY
+// ======================================
 
 async function getOrders(req, res) {
   try {
     const result = await pool.query(`
       SELECT
         o.*,
+
         COALESCE(
           json_agg(
             json_build_object(
@@ -261,19 +508,26 @@ async function getOrders(req, res) {
               'size', oi.size,
               'color', oi.color
             )
+            ORDER BY oi.id ASC
           ) FILTER (
             WHERE oi.id IS NOT NULL
           ),
-          '[]'
+          '[]'::json
         ) AS items
+
       FROM orders o
+
       LEFT JOIN order_items oi
         ON oi.order_id = o.id
+
       GROUP BY o.id
-      ORDER BY o.created_at DESC
+
+      ORDER BY
+        o.created_at DESC,
+        o.id DESC
     `);
 
-    res.json({
+    return res.json({
       success: true,
       count: result.rows.length,
       orders: result.rows,
@@ -284,39 +538,56 @@ async function getOrders(req, res) {
       error
     );
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      message:
-        "Porositë nuk u morën.",
+      message: "Porositë nuk u morën.",
     });
   }
 }
 
+// ======================================
+// UPDATE ORDER STATUS
+// PATCH /api/orders/:id/status
+// ADMIN ONLY
+// ======================================
+
 async function updateOrderStatus(req, res) {
-  const client = await pool.connect();
+  const id = Number(req.params.id);
+
+  const status = req.body?.status;
+
+  // VALIDATE ORDER ID
+  if (
+    !Number.isSafeInteger(id) ||
+    id <= 0
+  ) {
+    return res.status(400).json({
+      success: false,
+      message:
+        "ID e porosisë nuk është valide.",
+    });
+  }
+
+  // VALIDATE STATUS
+  if (!ALLOWED_STATUSES.has(status)) {
+    return res.status(400).json({
+      success: false,
+      message:
+        "Statusi nuk është valid.",
+    });
+  }
+
+  let client;
+  let inTransaction = false;
 
   try {
-    const id = Number(req.params.id);
-    const { status } = req.body;
-
-    const allowed = [
-      "pending",
-      "confirmed",
-      "shipped",
-      "delivered",
-      "cancelled",
-    ];
-
-    if (!allowed.includes(status)) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Statusi nuk është valid.",
-      });
-    }
+    client = await pool.connect();
 
     await client.query("BEGIN");
 
+    inTransaction = true;
+
+    // LOCK ORDER ROW
     const currentResult =
       await client.query(
         `
@@ -329,88 +600,181 @@ async function updateOrderStatus(req, res) {
       );
 
     if (currentResult.rows.length === 0) {
-      await client.query("ROLLBACK");
+      throw requestError(
+        "Porosia nuk u gjet.",
+        404
+      );
+    }
 
-      return res.status(404).json({
-        success: false,
+    const current =
+      currentResult.rows[0];
+
+    const previousStatus =
+      current.status;
+
+    // NO CHANGE NEEDED
+    if (status === previousStatus) {
+      await client.query("COMMIT");
+
+      inTransaction = false;
+
+      return res.json({
+        success: true,
         message:
-          "Porosia nuk u gjet.",
+          "Statusi është tashmë i përzgjedhur.",
+        order: current,
       });
     }
 
-    const currentStatus =
-      currentResult.rows[0].status;
-
+    // Do not restock shipped/delivered
+    // orders without a return process.
     if (
       status === "cancelled" &&
-      currentStatus !== "cancelled"
+      (
+        previousStatus === "shipped" ||
+        previousStatus === "delivered"
+      )
     ) {
-      const items =
+      throw requestError(
+        "Porosia e dërguar ose e dorëzuar kërkon trajtimin e kthimit para ndryshimit të stokut.",
+        409
+      );
+    }
+
+    // ==================================
+    // ADJUST STOCK WHEN CANCELLING
+    // OR REACTIVATING AN ORDER
+    // ==================================
+
+    if (
+      status === "cancelled" ||
+      previousStatus === "cancelled"
+    ) {
+      const itemsResult =
         await client.query(
           `
-          SELECT product_id, quantity
+          SELECT
+            product_id,
+            quantity
           FROM order_items
           WHERE order_id = $1
-          AND product_id IS NOT NULL
+            AND product_id IS NOT NULL
+          ORDER BY
+            product_id ASC,
+            id ASC
           `,
           [id]
         );
 
-      for (const item of items.rows) {
-        await client.query(
-          `
-          UPDATE products
-          SET
-            stock = stock + $1,
-            updated_at = NOW()
-          WHERE id = $2
-          `,
-          [
-            item.quantity,
-            item.product_id,
-          ]
-        );
+      for (const item of itemsResult.rows) {
+        if (status === "cancelled") {
+          // Restore stock once on cancellation.
+          await client.query(
+            `
+            UPDATE products
+            SET
+              stock = stock + $1,
+              updated_at = NOW()
+            WHERE id = $2
+            `,
+            [
+              item.quantity,
+              item.product_id,
+            ]
+          );
+        } else {
+          // Re-activating a cancelled order
+          // must reserve stock again.
+          const stockResult =
+            await client.query(
+              `
+              UPDATE products
+              SET
+                stock = stock - $1,
+                updated_at = NOW()
+              WHERE id = $2
+                AND stock >= $1
+                AND active = true
+              RETURNING id
+              `,
+              [
+                item.quantity,
+                item.product_id,
+              ]
+            );
+
+          if (
+            stockResult.rows.length === 0
+          ) {
+            throw requestError(
+              "Nuk ka stok të mjaftueshëm për riaktivizimin e porosisë.",
+              409
+            );
+          }
+        }
       }
     }
 
-    const result =
-      await client.query(
-        `
-        UPDATE orders
-        SET
-          status = $1,
-          updated_at = NOW()
-        WHERE id = $2
-        RETURNING *
-        `,
-        [status, id]
-      );
+    // ==================================
+    // SAVE STATUS
+    // ==================================
+
+    const result = await client.query(
+      `
+      UPDATE orders
+      SET
+        status = $1,
+        updated_at = NOW()
+      WHERE id = $2
+      RETURNING *
+      `,
+      [
+        status,
+        id,
+      ]
+    );
 
     await client.query("COMMIT");
 
-    res.json({
+    inTransaction = false;
+
+    return res.json({
       success: true,
+
       message:
-        "Statusi u ndryshua.",
+        "Statusi u ndryshua me sukses.",
+
       order: result.rows[0],
     });
   } catch (error) {
-    await client.query("ROLLBACK");
+    if (inTransaction) {
+      await safeRollback(client);
+    }
 
     console.error(
       "UPDATE ORDER ERROR:",
       error
     );
 
-    res.status(500).json({
-      success: false,
-      message:
-        "Statusi nuk u ndryshua.",
-    });
+    return res
+      .status(error.statusCode || 500)
+      .json({
+        success: false,
+
+        message: error.statusCode
+          ? error.message
+          : "Statusi nuk u ndryshua.",
+      });
   } finally {
-    client.release();
+    if (client) {
+      client.release();
+    }
   }
 }
+
+// ======================================
+// EXPORT CONTROLLERS
+// ======================================
 
 module.exports = {
   createOrder,

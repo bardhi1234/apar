@@ -1,378 +1,411 @@
+
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
   useState,
 } from "react";
 
+// =========================================
+// PROTEINFITNESS CART CONTEXT
+// =========================================
+
 const CartContext = createContext(null);
 
-const CART_STORAGE_KEY =
-  "apar-cart";
+// Ruajtje e veçantë nga APAR
+const CART_STORAGE_KEY = "proteinfitness-cart-v1";
 
 const DEFAULT_MAX_QUANTITY = 99;
 
-/*
-  Kthen numër të sigurt për price.
-  Punon edhe nëse ndonjëherë vjen:
-  34.99
-  ose
-  "34.99 €"
-*/
-const getNumericPrice = (
-  value
-) => {
+// =========================================
+// PRICE NORMALIZATION
+// =========================================
+
+function getNumericPrice(value) {
   if (
-    typeof value === "number" &&
-    Number.isFinite(value)
+    value === null ||
+    value === undefined ||
+    value === ""
   ) {
-    return value;
+    return null;
   }
 
-  const parsed = Number(
-    String(value || "")
-      .replace(",", ".")
-      .replace(
-        /[^0-9.-]/g,
-        ""
-      )
-  );
-
-  return Number.isFinite(parsed)
-    ? parsed
-    : 0;
-};
-
-/*
-  Stock maksimal për një produkt.
-
-  Për momentin përdor product.stock.
-  Kur të bëjmë backend-in, mund ta
-  ndryshojmë në stock sipas variantit.
-*/
-const getMaxStock = (
-  product
-) => {
-  const stock =
-    Number(product?.stock);
-
-  if (
-    Number.isFinite(stock)
-  ) {
-    return Math.max(
-      0,
-      Math.floor(stock)
-    );
+  if (typeof value === "number") {
+    return Number.isFinite(value) && value >= 0
+      ? value
+      : null;
   }
 
-  return DEFAULT_MAX_QUANTITY;
-};
+  const raw = String(value)
+    .trim()
+    .replace(/[\s€]/g, "");
 
-/*
-  Quantity gjithmonë integer >= 1
-*/
-const normalizeQuantity = (
-  quantity
-) => {
-  const number =
-    Number(quantity);
+  if (!raw) return null;
 
+  const normalized =
+    raw.includes(",") && raw.includes(".")
+      ? raw.lastIndexOf(",") > raw.lastIndexOf(".")
+        ? raw.replace(/\./g, "").replace(",", ".")
+        : raw.replace(/,/g, "")
+      : raw.replace(",", ".");
+
+  const number = Number(normalized);
+
+  return Number.isFinite(number) && number >= 0
+    ? number
+    : null;
+}
+
+// =========================================
+// STOCK NORMALIZATION
+// =========================================
+
+function getStock(product) {
+  const value = product?.stock;
+
+  // Stok i panjohur nuk konsiderohet zero
   if (
-    !Number.isFinite(number)
+    value === null ||
+    value === undefined ||
+    value === ""
   ) {
+    return null;
+  }
+
+  const stock = Number(value);
+
+  if (!Number.isFinite(stock)) {
+    return null;
+  }
+
+  return Math.max(0, Math.floor(stock));
+}
+
+function getMaxStock(product) {
+  const stock = getStock(product);
+
+  return stock === null
+    ? DEFAULT_MAX_QUANTITY
+    : stock;
+}
+
+// =========================================
+// QUANTITY NORMALIZATION
+// =========================================
+
+function normalizeQuantity(value) {
+  const quantity = Number(value);
+
+  if (!Number.isFinite(quantity)) {
     return 1;
   }
 
-  return Math.max(
-    1,
-    Math.floor(number)
-  );
-};
+  return Math.max(1, Math.floor(quantity));
+}
 
-/*
-  Krahason dy variante.
+// =========================================
+// VARIANT NORMALIZATION
+// size = Pesha
+// color = Shija
+// =========================================
 
-  I njëjti produkt me size/color
-  të ndryshëm konsiderohet item tjetër.
-*/
-const isSameVariant = (
+function normalizeVariant(value) {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
+    return null;
+  }
+
+  const normalized = String(value).trim();
+
+  return normalized || null;
+}
+
+// =========================================
+// CHECK SAME PRODUCT VARIANT
+// =========================================
+
+function isSameVariant(
   item,
   id,
-  size,
-  color
-) =>
-  String(item.id) ===
-    String(id) &&
-  (item.size || null) ===
-    (size || null) &&
-  (item.color || null) ===
-    (color || null);
+  size = null,
+  color = null
+) {
+  return (
+    String(item.id) === String(id) &&
+    normalizeVariant(item.size) ===
+      normalizeVariant(size) &&
+    normalizeVariant(item.color) ===
+      normalizeVariant(color)
+  );
+}
 
-export function CartProvider({
-  children,
-}) {
-  /*
-    ========================================
-    INITIAL CART
-    ========================================
-  */
+// =========================================
+// INITIAL CART FROM LOCAL STORAGE
+// =========================================
 
-  const [cart, setCart] =
-    useState(() => {
-      try {
-        const savedCart =
-          localStorage.getItem(
-            CART_STORAGE_KEY
-          );
+function loadSavedCart() {
+  try {
+    if (typeof window === "undefined") {
+      return [];
+    }
 
-        if (!savedCart) {
-          return [];
-        }
+    const saved = window.localStorage.getItem(
+      CART_STORAGE_KEY
+    );
 
-        const parsed =
-          JSON.parse(
-            savedCart
-          );
+    if (!saved) return [];
 
-        if (
-          !Array.isArray(parsed)
-        ) {
-          return [];
-        }
+    const parsed = JSON.parse(saved);
 
-        /*
-          Pastrojmë të dhënat e ruajtura.
-        */
-        return parsed
-          .filter(
-            (item) =>
-              item &&
-              item.id !==
-                undefined
-          )
-          .map((item) => {
-            const maxStock =
-              getMaxStock(
-                item
-              );
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
 
-            const quantity =
-              Math.min(
-                normalizeQuantity(
-                  item.quantity
-                ),
-                Math.max(
-                  1,
-                  maxStock
-                )
-              );
+    return parsed
+      .filter(
+        (item) =>
+          item &&
+          item.id !== null &&
+          item.id !== undefined
+      )
+      .map((item) => {
+        const maxStock = getMaxStock(item);
 
-            return {
-              ...item,
+        const quantity = Math.min(
+          normalizeQuantity(item.quantity),
+          Math.max(1, maxStock)
+        );
 
-              price:
-                getNumericPrice(
-                  item.price
-                ),
+        return {
+          ...item,
 
-              size:
-                item.size ||
-                null,
+          price:
+            getNumericPrice(item.price) ?? 0,
 
-              color:
-                item.color ||
-                null,
+          oldPrice:
+            getNumericPrice(
+              item.oldPrice ?? item.old_price
+            ),
 
-              quantity,
-            };
-          });
-      } catch {
-        return [];
-      }
-    });
+          size: normalizeVariant(item.size),
 
-  const [
-    isCartOpen,
-    setIsCartOpen,
-  ] = useState(false);
+          color: normalizeVariant(item.color),
 
-  /*
-    ========================================
-    SAVE CART
-    ========================================
-  */
+          quantity,
+        };
+      });
+  } catch (error) {
+    console.warn(
+      "ProteinFitness: Gabim gjatë leximit të shportës.",
+      error
+    );
+
+    return [];
+  }
+}
+
+// =========================================
+// CART PROVIDER
+// =========================================
+
+export function CartProvider({ children }) {
+  const [cart, setCart] = useState(loadSavedCart);
+
+  const [isCartOpen, setIsCartOpen] =
+    useState(false);
+
+  // =======================================
+  // SAVE CART
+  // =======================================
 
   useEffect(() => {
     try {
-      localStorage.setItem(
+      window.localStorage.setItem(
         CART_STORAGE_KEY,
         JSON.stringify(cart)
       );
-    } catch {
-      /*
-        Nëse browser-i nuk lejon storage,
-        website vazhdon të funksionojë.
-      */
+    } catch (error) {
+      console.warn(
+        "ProteinFitness: Shporta nuk u ruajt.",
+        error
+      );
     }
   }, [cart]);
 
-  /*
-    ========================================
-    DRAWER
-    ========================================
-  */
+  // =======================================
+  // CART DRAWER
+  // =======================================
 
-  const openCart = () => {
+  const openCart = useCallback(() => {
     setIsCartOpen(true);
-  };
+  }, []);
 
-  const closeCart = () => {
+  const closeCart = useCallback(() => {
     setIsCartOpen(false);
-  };
+  }, []);
 
-  const toggleCart = () => {
-    setIsCartOpen(
-      (current) => !current
-    );
-  };
+  const toggleCart = useCallback(() => {
+    setIsCartOpen((current) => !current);
+  }, []);
 
-  /*
-    ========================================
-    ADD TO CART
-    ========================================
-  */
+  // =======================================
+  // ADD PRODUCT TO CART
+  // =======================================
 
-  const addToCart = (
-    product,
-    options = {}
-  ) => {
-    if (!product) return;
+  const addToCart = useCallback(
+    (product, options = {}) => {
+      if (
+        !product ||
+        product.id === null ||
+        product.id === undefined
+      ) {
+        return;
+      }
 
-    const {
-      size = null,
-      color = null,
-      quantity = 1,
-    } = options;
+      const price = getNumericPrice(product.price);
 
-    const maxStock =
-      getMaxStock(product);
+      // Mos shto produkte pa çmim të vlefshëm
+      if (price === null || price <= 0) {
+        return;
+      }
 
-    /*
-      Produkt jashtë stokut.
-    */
-    if (maxStock <= 0) {
-      return;
-    }
+      const maxStock = getMaxStock(product);
 
-    const requestedQuantity =
-      Math.min(
-        normalizeQuantity(
-          quantity
-        ),
+      // Produkti është jashtë stokut
+      if (maxStock <= 0) {
+        return;
+      }
+
+      // Kompatibilitet me formatin e vjetër
+      // dhe variantet e reja ProteinFitness
+      const size = normalizeVariant(
+        options.size ?? options.weight
+      );
+
+      const color = normalizeVariant(
+        options.color ?? options.flavor
+      );
+
+      const requestedQuantity = Math.min(
+        normalizeQuantity(options.quantity ?? 1),
         maxStock
       );
 
-    setCart(
-      (currentCart) => {
-        const existingItem =
-          currentCart.find(
-            (item) =>
-              isSameVariant(
+      setCart((currentCart) => {
+        // Sasia totale e produktit, përfshirë
+        // të gjitha shijet dhe paketimet.
+        const totalForProduct = currentCart.reduce(
+          (sum, item) => {
+            if (
+              String(item.id) !== String(product.id)
+            ) {
+              return sum;
+            }
+
+            return (
+              sum + normalizeQuantity(item.quantity)
+            );
+          },
+          0
+        );
+
+        const availableQuantity = Math.max(
+          0,
+          maxStock - totalForProduct
+        );
+
+        if (availableQuantity === 0) {
+          return currentCart;
+        }
+
+        const quantityToAdd = Math.min(
+          requestedQuantity,
+          availableQuantity
+        );
+
+        const existingItem = currentCart.find(
+          (item) =>
+            isSameVariant(
+              item,
+              product.id,
+              size,
+              color
+            )
+        );
+
+        // Produkti me variantin e njëjtë
+        // ekziston në shportë
+        if (existingItem) {
+          return currentCart.map((item) => {
+            if (
+              !isSameVariant(
                 item,
                 product.id,
                 size,
                 color
               )
-          );
-
-        /*
-          Nëse varianti ekziston,
-          vetëm rrit quantity.
-        */
-        if (existingItem) {
-          return currentCart.map(
-            (item) => {
-              if (
-                !isSameVariant(
-                  item,
-                  product.id,
-                  size,
-                  color
-                )
-              ) {
-                return item;
-              }
-
-              const newQuantity =
-                Math.min(
-                  item.quantity +
-                    requestedQuantity,
-                  maxStock
-                );
-
-              return {
-                ...item,
-
-                stock:
-                  product.stock ??
-                  item.stock,
-
-                price:
-                  getNumericPrice(
-                    product.price
-                  ),
-
-                quantity:
-                  newQuantity,
-              };
+            ) {
+              return item;
             }
-          );
-        }
 
-        /*
-          Variant i ri.
-        */
-        return [
-          ...currentCart,
+            return {
+              ...item,
+              ...product,
 
-          {
-            ...product,
+              price,
 
-            price:
-              getNumericPrice(
-                product.price
+              oldPrice: getNumericPrice(
+                product.oldPrice ??
+                  product.old_price
               ),
 
-            size:
-              size || null,
+              size,
+              color,
 
-            color:
-              color || null,
+              quantity:
+                normalizeQuantity(item.quantity) +
+                quantityToAdd,
+            };
+          });
+        }
 
-            quantity:
-              requestedQuantity,
-          },
-        ];
-      }
-    );
+        // Variant i ri në shportë
+        const newItem = {
+          ...product,
 
-    openCart();
-  };
+          price,
 
-  /*
-    ========================================
-    REMOVE
-    ========================================
-  */
+          oldPrice: getNumericPrice(
+            product.oldPrice ?? product.old_price
+          ),
 
-  const removeFromCart = (
-    id,
-    size = null,
-    color = null
-  ) => {
-    setCart(
-      (currentCart) =>
+          size,
+          color,
+
+          quantity: quantityToAdd,
+        };
+
+        return [...currentCart, newItem];
+      });
+
+      // Hap MiniCart
+      setIsCartOpen(true);
+    },
+    []
+  );
+
+  // =======================================
+  // REMOVE PRODUCT
+  // =======================================
+
+  const removeFromCart = useCallback(
+    (id, size = null, color = null) => {
+      setCart((currentCart) =>
         currentCart.filter(
           (item) =>
             !isSameVariant(
@@ -382,197 +415,214 @@ export function CartProvider({
               color
             )
         )
-    );
-  };
-
-  /*
-    ========================================
-    UPDATE QUANTITY
-    ========================================
-  */
-
-  const updateQuantity = (
-    id,
-    size = null,
-    color = null,
-    quantity
-  ) => {
-    const requested =
-      Number(quantity);
-
-    /*
-      Nëse bie në 0,
-      largohet produkti.
-    */
-    if (
-      Number.isFinite(
-        requested
-      ) &&
-      requested <= 0
-    ) {
-      removeFromCart(
-        id,
-        size,
-        color
       );
+    },
+    []
+  );
 
-      return;
-    }
+  // =======================================
+  // UPDATE QUANTITY
+  // =======================================
 
-    setCart(
-      (currentCart) =>
-        currentCart.map(
-          (item) => {
-            if (
+  const updateQuantity = useCallback(
+    (
+      id,
+      size = null,
+      color = null,
+      quantity
+    ) => {
+      const requested = Number(quantity);
+
+      if (!Number.isFinite(requested)) {
+        return;
+      }
+
+      // Nëse quantity <= 0, largo produktin
+      if (requested <= 0) {
+        setCart((currentCart) =>
+          currentCart.filter(
+            (item) =>
               !isSameVariant(
                 item,
                 id,
                 size,
                 color
               )
-            ) {
-              return item;
-            }
+          )
+        );
 
-            const maxStock =
-              getMaxStock(item);
+        return;
+      }
 
-            if (
-              maxStock <= 0
-            ) {
-              return {
-                ...item,
-                quantity: 1,
-              };
-            }
-
-            const safeQuantity =
-              Math.min(
-                normalizeQuantity(
-                  quantity
-                ),
-                maxStock
-              );
-
-            return {
-              ...item,
-              quantity:
-                safeQuantity,
-            };
+      setCart((currentCart) =>
+        currentCart.map((item) => {
+          if (
+            !isSameVariant(
+              item,
+              id,
+              size,
+              color
+            )
+          ) {
+            return item;
           }
-        )
-    );
-  };
 
-  /*
-    ========================================
-    CLEAR
-    ========================================
-  */
+          const maxStock = getMaxStock(item);
 
-  const clearCart = () => {
+          // Nëse produkti ka kaluar jashtë
+          // stokut, ruaj përkohësisht rreshtin
+          // që klienti të mund ta largojë.
+          if (maxStock <= 0) {
+            return item;
+          }
+
+          const otherVariantsQuantity =
+            currentCart.reduce(
+              (sum, otherItem) => {
+                if (
+                  String(otherItem.id) !==
+                    String(id) ||
+                  isSameVariant(
+                    otherItem,
+                    id,
+                    size,
+                    color
+                  )
+                ) {
+                  return sum;
+                }
+
+                return (
+                  sum +
+                  normalizeQuantity(
+                    otherItem.quantity
+                  )
+                );
+              },
+              0
+            );
+
+          const availableForVariant =
+            maxStock - otherVariantsQuantity;
+
+          if (availableForVariant <= 0) {
+            return item;
+          }
+
+          const safeQuantity = Math.min(
+            normalizeQuantity(requested),
+            availableForVariant
+          );
+
+          return {
+            ...item,
+            quantity: safeQuantity,
+          };
+        })
+      );
+    },
+    []
+  );
+
+  // =======================================
+  // CLEAR CART
+  // =======================================
+
+  const clearCart = useCallback(() => {
     setCart([]);
     setIsCartOpen(false);
-  };
+  }, []);
 
-  /*
-    ========================================
-    TOTALS
-    ========================================
-  */
+  // =======================================
+  // CART ITEM COUNT
+  // =======================================
 
-  const cartCount =
-    useMemo(
-      () =>
-        cart.reduce(
-          (
-            total,
-            item
-          ) =>
-            total +
-            normalizeQuantity(
-              item.quantity
-            ),
-          0
-        ),
-      [cart]
+  const cartCount = useMemo(() => {
+    return cart.reduce(
+      (total, item) =>
+        total + normalizeQuantity(item.quantity),
+      0
     );
+  }, [cart]);
 
-  const cartTotal =
-    useMemo(
-      () =>
-        cart.reduce(
-          (
-            total,
-            item
-          ) =>
-            total +
-            getNumericPrice(
-              item.price
-            ) *
-              normalizeQuantity(
-                item.quantity
-              ),
-          0
-        ),
-      [cart]
-    );
+  // =======================================
+  // CART TOTAL
+  // =======================================
 
-  /*
-    Sa rreshta / variante
-    kemi në cart.
-  */
-  const cartItemsCount =
-    cart.length;
+  const cartTotal = useMemo(() => {
+    return cart.reduce((total, item) => {
+      const price =
+        getNumericPrice(item.price) ?? 0;
 
-  /*
-    ========================================
-    PROVIDER
-    ========================================
-  */
+      const quantity = normalizeQuantity(
+        item.quantity
+      );
 
-  const value =
-    useMemo(
-      () => ({
-        cart,
+      return total + price * quantity;
+    }, 0);
+  }, [cart]);
 
-        addToCart,
-        removeFromCart,
-        updateQuantity,
-        clearCart,
+  // =======================================
+  // CART VARIANTS COUNT
+  // =======================================
 
-        cartCount,
-        cartItemsCount,
-        cartTotal,
+  const cartItemsCount = cart.length;
 
-        isCartOpen,
-        openCart,
-        closeCart,
-        toggleCart,
-      }),
-      [
-        cart,
-        cartCount,
-        cartItemsCount,
-        cartTotal,
-        isCartOpen,
-      ]
-    );
+  // =======================================
+  // CART CONTEXT VALUE
+  // =======================================
+
+  const value = useMemo(
+    () => ({
+      // Products
+      cart,
+
+      // Actions
+      addToCart,
+      removeFromCart,
+      updateQuantity,
+      clearCart,
+
+      // Totals
+      cartCount,
+      cartItemsCount,
+      cartTotal,
+
+      // Drawer
+      isCartOpen,
+      openCart,
+      closeCart,
+      toggleCart,
+    }),
+    [
+      cart,
+      addToCart,
+      removeFromCart,
+      updateQuantity,
+      clearCart,
+      cartCount,
+      cartItemsCount,
+      cartTotal,
+      isCartOpen,
+      openCart,
+      closeCart,
+      toggleCart,
+    ]
+  );
 
   return (
-    <CartContext.Provider
-      value={value}
-    >
+    <CartContext.Provider value={value}>
       {children}
     </CartContext.Provider>
   );
 }
 
+// =========================================
+// CUSTOM HOOK
+// =========================================
+
 export function useCart() {
-  const context =
-    useContext(
-      CartContext
-    );
+  const context = useContext(CartContext);
 
   if (!context) {
     throw new Error(

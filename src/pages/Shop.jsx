@@ -1,771 +1,418 @@
-import {
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
 
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
+  ArrowRight,
+  BadgePercent,
+  ChevronDown,
+  RotateCcw,
   Search,
   SlidersHorizontal,
   X,
-  ChevronDown,
 } from "lucide-react";
-
-import {
-  useSearchParams,
-} from "react-router-dom";
 
 import Header from "../components/Header";
 import Footer from "../components/Footer";
-import ProductCard from "../components/ProductCard";
 import ShopHero from "../components/ShopHero";
-import ShopCategoryNav from "../components/ShopCategoryNav";
-
+import ProductCard from "../components/ProductCard";
 import { getProducts } from "../services/api";
 
-/*
-  ========================================
-  SHOP CATEGORIES
-  ========================================
-*/
+// Çmimet mund të vijnë nga API si numër ose si tekst.
+function toPrice(value) {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
 
-const categories = [];
+  const raw = String(value).trim().replace(/[\s€]/g, "");
+  const normalized = raw.includes(",") && raw.includes(".")
+    ? raw.lastIndexOf(",") > raw.lastIndexOf(".")
+      ? raw.replace(/\./g, "").replace(",", ".")
+      : raw.replace(/,/g, "")
+    : raw.replace(",", ".");
+  const price = Number(normalized);
+  return Number.isFinite(price) ? price : null;
+}
 
-const allowedCategories = [
-  "Veshje",
-  "Aksesorë",
-  "Kozmetikë",
+function getCategoryName(product) {
+  return typeof product.category === "string"
+    ? product.category
+    : product.category?.name || "";
+}
+
+function normalize(text) {
+  return String(text || "").trim().toLocaleLowerCase("sq");
+}
+
+const PRICE_OPTIONS = [
+  { value: "all", label: "Të gjitha" },
+  { value: "under30", label: "Nën 30 €" },
+  { value: "30to60", label: "30 € – 60 €" },
+  { value: "60to100", label: "60 € – 100 €" },
+  { value: "over100", label: "Mbi 100 €" },
 ];
 
 export default function Shop() {
-  const [products, setProducts] = useState([]);
-  const [productsLoading, setProductsLoading] = useState(true);
-  const [productsError, setProductsError] = useState("");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const category = searchParams.get("category") || "";
+  const search = searchParams.get("search") || "";
 
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
+  const [showFilters, setShowFilters] = useState(false);
+  const [priceFilter, setPriceFilter] = useState("all");
+  const [sort, setSort] = useState("default");
+  const [onlyDiscounts, setOnlyDiscounts] = useState(false);
+
+  // Merr produktet nga backend-i ekzistues.
   useEffect(() => {
     let cancelled = false;
 
     async function loadProducts() {
+      setLoading(true);
+      setError("");
       try {
-        setProductsLoading(true);
-        setProductsError("");
+        const response = await getProducts();
+        const list = Array.isArray(response)
+          ? response
+          : Array.isArray(response?.products)
+            ? response.products
+            : [];
 
-        const data = await getProducts();
-
-        if (cancelled) return;
-
-        const activeProducts = (data.products || []).filter(
-          (product) => product.active !== false
-        );
-
-        setProducts(activeProducts);
-      } catch (error) {
         if (!cancelled) {
-          console.error("Shop products error:", error);
-          setProductsError(error.message);
+          setProducts(list.filter((product) => product && product.active !== false));
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setProducts([]);
+          setError(err?.message || "Nuk arritëm t'i ngarkojmë produktet.");
         }
       } finally {
-        if (!cancelled) {
-          setProductsLoading(false);
-        }
+        if (!cancelled) setLoading(false);
       }
     }
 
     loadProducts();
+    return () => { cancelled = true; };
+  }, [reloadKey]);
 
-    return () => {
-      cancelled = true;
-    };
+  useEffect(() => {
+    document.title = "Produktet | ProteinFitness";
   }, []);
-  const [
-    searchParams,
-    setSearchParams,
-  ] = useSearchParams();
 
-  const categoryFromUrl =
-    searchParams.get(
-      "category"
-    );
+  // Përditëso kërkimin në URL pa humbur kategorinë e zgjedhur.
+  function handleSearchChange(value) {
+    const params = new URLSearchParams(searchParams);
+    if (value.trim()) params.set("search", value);
+    else params.delete("search");
+    params.delete("page");
+    setSearchParams(params, { replace: true });
+  }
 
-  const searchFromUrl =
-    searchParams.get(
-      "search"
-    ) || "";
+  function resetFilters() {
+    setPriceFilter("all");
+    setSort("default");
+    setOnlyDiscounts(false);
+    setShowFilters(false);
+    const params = new URLSearchParams(searchParams);
+    params.delete("category");
+    params.delete("search");
+    params.delete("page");
+    setSearchParams(params);
+  }
 
-  /*
-    Nëse URL ka kategori që nuk
-    ekziston më, përdor Të gjitha.
-  */
-  const selectedCategory =
-    allowedCategories.includes(
-      categoryFromUrl
-    )
-      ? categoryFromUrl
-      : "Të gjitha";
+  // Kategoria nga ShopCategoryNav lexohet direkt prej URL-së.
+  const filteredProducts = useMemo(() => {
+    const query = normalize(search);
+    const selectedCategory = normalize(category);
 
-  const [
-    search,
-    setSearch,
-  ] = useState(
-    searchFromUrl
-  );
+    const result = products.filter((product) => {
+      const productCategory = getCategoryName(product);
+      const price = toPrice(product.price);
+      const oldPrice = toPrice(product.oldPrice ?? product.old_price);
+      const discounted = price !== null && oldPrice !== null && oldPrice > price;
 
-  const [
-    sort,
-    setSort,
-  ] = useState(
-    "default"
-  );
+      if (selectedCategory && normalize(productCategory) !== selectedCategory) {
+        return false;
+      }
 
-  const [
-    priceFilter,
-    setPriceFilter,
-  ] = useState(
-    "all"
-  );
+      if (query) {
+        const haystack = normalize([
+          product.name,
+          productCategory,
+          product.brand,
+          product.description,
+        ].filter(Boolean).join(" "));
+        if (!haystack.includes(query)) return false;
+      }
 
-  const [
-    showFilters,
-    setShowFilters,
-  ] = useState(false);
+      if (onlyDiscounts && !discounted) return false;
 
-  /*
-    ========================================
-    REMOVE OLD PERSONALIZIM URL
-    ========================================
-  */
+      if (priceFilter !== "all") {
+        if (price === null) return false;
+        if (priceFilter === "under30" && price >= 30) return false;
+        if (priceFilter === "30to60" && (price < 30 || price > 60)) return false;
+        if (priceFilter === "60to100" && (price <= 60 || price > 100)) return false;
+        if (priceFilter === "over100" && price <= 100) return false;
+      }
 
-  useEffect(() => {
-    if (
-      categoryFromUrl &&
-      !allowedCategories.includes(
-        categoryFromUrl
-      )
-    ) {
-      const params =
-        new URLSearchParams(
-          searchParams
-        );
+      return true;
+    });
 
-      params.delete(
-        "category"
-      );
-
-      setSearchParams(
-        params,
-        {
-          replace: true,
-        }
-      );
-    }
-  }, [
-    categoryFromUrl,
-    searchParams,
-    setSearchParams,
-  ]);
-
-  /*
-    ========================================
-    SYNC SEARCH FROM URL
-    ========================================
-  */
-
-  useEffect(() => {
-    setSearch(
-      searchFromUrl
-    );
-  }, [
-    searchFromUrl,
-  ]);
-
-  /*
-    ========================================
-    CATEGORY
-    ========================================
-  */
-
-  const handleCategoryChange = (
-    category
-  ) => {
-    const params =
-      new URLSearchParams(
-        searchParams
-      );
-
-    if (
-      category ===
-      "Të gjitha"
-    ) {
-      params.delete(
-        "category"
-      );
-    } else {
-      params.set(
-        "category",
-        category
-      );
+    if (sort === "low-high") {
+      result.sort((a, b) => (toPrice(a.price) ?? Infinity) - (toPrice(b.price) ?? Infinity));
+    } else if (sort === "high-low") {
+      result.sort((a, b) => (toPrice(b.price) ?? -Infinity) - (toPrice(a.price) ?? -Infinity));
+    } else if (sort === "newest") {
+      result.sort((a, b) => Number(b.id || 0) - Number(a.id || 0));
+    } else if (sort === "discount") {
+      const percentage = (product) => {
+        const price = toPrice(product.price);
+        const oldPrice = toPrice(product.oldPrice ?? product.old_price);
+        return price !== null && oldPrice > price
+          ? (oldPrice - price) / oldPrice
+          : 0;
+      };
+      result.sort((a, b) => percentage(b) - percentage(a));
     }
 
-    setSearchParams(
-      params
-    );
-  };
+    return result;
+  }, [products, category, search, priceFilter, onlyDiscounts, sort]);
 
-  /*
-    ========================================
-    SEARCH
-    ========================================
-  */
+  const filterCount = [
+    Boolean(category),
+    Boolean(search.trim()),
+    priceFilter !== "all",
+    onlyDiscounts,
+  ].filter(Boolean).length;
 
-  const handleSearchChange = (
-    value
-  ) => {
-    setSearch(
-      value
-    );
-
-    const params =
-      new URLSearchParams(
-        searchParams
-      );
-
-    if (
-      value.trim()
-    ) {
-      params.set(
-        "search",
-        value
-      );
-    } else {
-      params.delete(
-        "search"
-      );
-    }
-
-    setSearchParams(
-      params,
-      {
-        replace: true,
-      }
-    );
-  };
-
-  /*
-    ========================================
-    FILTER PRODUCTS
-    ========================================
-  */
-
-  const filteredProducts =
-    useMemo(() => {
-      /*
-        Personalizimi hiqet
-        plotësisht nga Shop.
-      */
-      let result =
-        products.filter(
-          (product) =>
-            product.category !==
-            "Personalizim"
-        );
-
-      /*
-        CATEGORY
-      */
-      if (
-        selectedCategory !==
-        "Të gjitha"
-      ) {
-        result =
-          result.filter(
-            (product) =>
-              product.category ===
-              selectedCategory
-          );
-      }
-
-      /*
-        SEARCH
-      */
-      if (
-        search.trim()
-      ) {
-        const searchValue =
-          search
-            .trim()
-            .toLowerCase();
-
-        result =
-          result.filter(
-            (product) =>
-              product.name
-                .toLowerCase()
-                .includes(
-                  searchValue
-                ) ||
-              product.category
-                .toLowerCase()
-                .includes(
-                  searchValue
-                )
-          );
-      }
-
-      /*
-        PRICE
-      */
-      if (
-        priceFilter ===
-        "under25"
-      ) {
-        result =
-          result.filter(
-            (product) =>
-              product.price <
-              25
-          );
-      }
-
-      if (
-        priceFilter ===
-        "25to40"
-      ) {
-        result =
-          result.filter(
-            (product) =>
-              product.price >=
-                25 &&
-              product.price <=
-                40
-          );
-      }
-
-      if (
-        priceFilter ===
-        "over40"
-      ) {
-        result =
-          result.filter(
-            (product) =>
-              product.price >
-              40
-          );
-      }
-
-      /*
-        SORT
-      */
-      if (
-        sort ===
-        "low-high"
-      ) {
-        result.sort(
-          (a, b) =>
-            a.price -
-            b.price
-        );
-      }
-
-      if (
-        sort ===
-        "high-low"
-      ) {
-        result.sort(
-          (a, b) =>
-            b.price -
-            a.price
-        );
-      }
-
-      if (
-        sort ===
-        "newest"
-      ) {
-        result.sort(
-          (a, b) =>
-            b.id - a.id
-        );
-      }
-
-      return result;
-    }, [
-      selectedCategory,
-      search,
-      sort,
-      priceFilter,
-    products,
-  ]);
-
-  /*
-    ========================================
-    RESET FILTERS
-    ========================================
-  */
-
-  const resetFilters = () => {
-    setSearch("");
-    setSort(
-      "default"
-    );
-    setPriceFilter(
-      "all"
-    );
-    setShowFilters(
-      false
-    );
-
-    setSearchParams({});
-  };
+  const pillClass = (active) =>
+    `rounded-xl border px-4 py-2.5 text-xs font-bold transition-all duration-200 ${
+      active
+        ? "border-[#FF7900] bg-[#FF7900] text-black"
+        : "border-white/15 bg-white/[0.04] text-neutral-300 hover:border-[#FF7900]/50 hover:text-white"
+    }`;
 
   return (
     <>
       <Header />
-
-      <main className="min-h-screen bg-white">
-
-        {/* ================================= */}
-        {/* SHOP HERO */}
-        {/* ================================= */}
-
+      <main className="min-h-screen bg-[#080808] text-white">
+        {/* ShopHero përmban tashmë ShopCategoryNav. */}
         <ShopHero />
 
-        <ShopCategoryNav />
-
-        {/* ================================= */}
-        {/* SHOP */}
-        {/* ================================= */}
-
-        <section className="mx-auto max-w-[1500px] px-4 py-7 sm:px-6 sm:py-12 lg:px-10 lg:py-14">
-
-          {/* ================================= */}
-          {/* CATEGORY + SEARCH */}
-          {/* ================================= */}
-
-          <div className="flex flex-col gap-4 border-b border-neutral-200 pb-5 sm:gap-6 sm:pb-7 xl:flex-row xl:items-center xl:justify-between">
-
-
-            {/* SEARCH */}
-            <div className="flex h-11 w-full min-w-0 items-center border border-neutral-300 bg-white px-3 transition duration-300 focus-within:border-black sm:h-auto sm:px-4 xl:w-[350px]">
-
-              <Search
-                size={18}
-                className="flex-shrink-0 text-neutral-400"
-              />
-
-              <input
-                type="text"
-                placeholder="Kërko produkt..."
-                value={
-                  search
-                }
-                onChange={(
-                  e
-                ) =>
-                  handleSearchChange(
-                    e.target
-                      .value
-                  )
-                }
-                className="w-full bg-transparent px-3 py-2.5 text-[13px] text-black outline-none placeholder:text-neutral-400 sm:py-3.5 sm:text-sm"
-              />
-
-              {search && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleSearchChange(
-                      ""
-                    )
-                  }
-                  aria-label="Pastro kërkimin"
-                  className="text-neutral-400 transition hover:text-black"
-                >
-                  <X
-                    size={
-                      17
-                    }
-                  />
-                </button>
-              )}
-
-            </div>
-
+        <section
+          id="shop-products"
+          className="relative isolate overflow-hidden py-16 sm:py-20 lg:py-24"
+        >
+          <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+            <div className="absolute -right-48 top-12 h-[500px] w-[500px] rounded-full bg-[#FF7900]/[0.05] blur-[150px]" />
+            <div className="absolute -left-52 bottom-0 h-[500px] w-[500px] rounded-full bg-[#FF7900]/[0.035] blur-[150px]" />
           </div>
 
-          {/* ================================= */}
-          {/* RESULTS + CONTROLS */}
-          {/* ================================= */}
-
-          <div className="mt-5 flex flex-col gap-3 sm:mt-7 sm:flex-row sm:items-center sm:justify-between">
-
-            <div>
-
-              <p className="text-[10px] font-bold tracking-[0.25em] text-neutral-400">
-                APAR PRODUCTS
-              </p>
-
-              <p className="mt-2 text-sm text-neutral-500">
-
-                <span className="font-bold text-black">
-                  {
-                    filteredProducts.length
-                  }
-                </span>{" "}
-
-                {filteredProducts.length ===
-                1
-                  ? "produkt"
-                  : "produkte"}
-
-              </p>
-
-            </div>
-
-            <div className="flex items-center gap-2 sm:gap-3">
-
-              {/* FILTER */}
-              <button
-                type="button"
-                onClick={() =>
-                  setShowFilters(
-                    (
-                      current
-                    ) =>
-                      !current
-                  )
-                }
-                className={`flex h-10 items-center gap-2 border px-3 text-[12px] font-semibold transition duration-300 sm:h-[46px] sm:px-5 sm:text-sm ${
-                  showFilters
-                    ? "border-black bg-black text-white"
-                    : "border-neutral-300 bg-white text-black hover:border-black"
-                }`}
-              >
-                <SlidersHorizontal
-                  size={16}
-                />
-
-                Filter
-              </button>
-
-              {/* SORT */}
-              <div className="relative">
-
-                <select
-                  value={
-                    sort
-                  }
-                  onChange={(
-                    e
-                  ) =>
-                    setSort(
-                      e.target
-                        .value
-                    )
-                  }
-                  className="h-10 appearance-none border border-neutral-300 bg-white py-0 pl-3 pr-9 text-[12px] text-black outline-none transition hover:border-black focus:border-black sm:h-[46px] sm:pl-4 sm:pr-10 sm:text-sm"
-                >
-                  <option value="default">
-                    Renditja
-                  </option>
-
-                  <option value="newest">
-                    Më të rejat
-                  </option>
-
-                  <option value="low-high">
-                    Çmimi: ulët → lartë
-                  </option>
-
-                  <option value="high-low">
-                    Çmimi: lartë → ulët
-                  </option>
-                </select>
-
-                <ChevronDown
-                  size={15}
-                  className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2"
-                />
-
+          <div className="relative mx-auto max-w-[1500px] px-4 sm:px-6 lg:px-10">
+            {/* HEADING */}
+            <div className="mb-10 flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
+              <div>
+                <div className="mb-4 flex items-center gap-3">
+                  <span className="h-[2px] w-9 bg-[#FF7900]" />
+                  <span className="text-[10px] font-extrabold uppercase tracking-[0.22em] text-[#FF7900]">
+                    PROTEINFITNESS STORE
+                  </span>
+                </div>
+                <h2 className="text-[clamp(2.2rem,5vw,4.6rem)] font-black uppercase leading-[1.05] tracking-[-0.05em]">
+                  KATALOGU <span className="text-[#FF7900]">I PRODUKTEVE.</span>
+                </h2>
+                <p className="mt-4 max-w-2xl text-sm leading-7 text-neutral-400 sm:text-base">
+                  Eksploro suplementet dhe aksesorët sportivë. Kërko, filtro dhe krahaso produktet në një vend.
+                </p>
               </div>
-
+              <div className="flex items-center gap-2 rounded-full border border-[#FF7900]/20 bg-[#FF7900]/10 px-4 py-2.5">
+                <span className="h-2 w-2 rounded-full bg-[#FF7900]" />
+                <span className="text-[11px] font-bold text-[#FF9D3C]">
+                  {loading ? "Duke ngarkuar..." : `${filteredProducts.length} produkte`}
+                </span>
+              </div>
             </div>
 
-          </div>
-
-          {/* ================================= */}
-          {/* FILTER PANEL */}
-          {/* ================================= */}
-
-          {showFilters && (
-            <div className="mt-4 border border-neutral-200 bg-[#f7f7f7] p-4 sm:mt-6 sm:p-6">
-
-              <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
-
-                <div>
-
-                  <p className="text-[10px] font-bold tracking-[0.3em] text-neutral-400">
-                    FILTRO SIPAS ÇMIMIT
-                  </p>
-
-                  <div className="mt-4 flex flex-wrap gap-2">
-
+            {/* SEARCH + SORT + FILTER */}
+            <div className="rounded-2xl border border-white/10 bg-[#121212] p-3 sm:p-5">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                <div className="flex min-h-[52px] min-w-0 flex-1 items-center gap-3 rounded-xl border border-white/15 bg-[#090909] px-4 focus-within:border-[#FF7900]">
+                  <Search size={19} className="shrink-0 text-[#FF7900]" />
+                  <input
+                    type="search"
+                    value={search}
+                    onChange={(event) => handleSearchChange(event.target.value)}
+                    placeholder="Kërko proteina, kreatinë, marka..."
+                    aria-label="Kërko produkte"
+                    className="min-w-0 flex-1 bg-transparent py-3.5 text-sm text-white outline-none placeholder:text-neutral-500"
+                  />
+                  {search && (
                     <button
                       type="button"
-                      onClick={() =>
-                        setPriceFilter(
-                          "all"
-                        )
-                      }
-                      className={`border px-3 py-2 text-[12px] font-semibold transition sm:px-4 sm:py-2.5 sm:text-sm ${
-                        priceFilter ===
-                        "all"
-                          ? "border-black bg-black text-white"
-                          : "border-neutral-300 bg-white text-neutral-700 hover:border-black"
-                      }`}
+                      onClick={() => handleSearchChange("")}
+                      aria-label="Pastro kërkimin"
+                      className="text-neutral-400 hover:text-[#FF7900]"
                     >
-                      Të gjitha
+                      <X size={17} />
                     </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setPriceFilter(
-                          "under25"
-                        )
-                      }
-                      className={`border px-3 py-2 text-[12px] font-semibold transition sm:px-4 sm:py-2.5 sm:text-sm ${
-                        priceFilter ===
-                        "under25"
-                          ? "border-black bg-black text-white"
-                          : "border-neutral-300 bg-white text-neutral-700 hover:border-black"
-                      }`}
-                    >
-                      Nën 25 €
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setPriceFilter(
-                          "25to40"
-                        )
-                      }
-                      className={`border px-3 py-2 text-[12px] font-semibold transition sm:px-4 sm:py-2.5 sm:text-sm ${
-                        priceFilter ===
-                        "25to40"
-                          ? "border-black bg-black text-white"
-                          : "border-neutral-300 bg-white text-neutral-700 hover:border-black"
-                      }`}
-                    >
-                      25 € – 40 €
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setPriceFilter(
-                          "over40"
-                        )
-                      }
-                      className={`border px-3 py-2 text-[12px] font-semibold transition sm:px-4 sm:py-2.5 sm:text-sm ${
-                        priceFilter ===
-                        "over40"
-                          ? "border-black bg-black text-white"
-                          : "border-neutral-300 bg-white text-neutral-700 hover:border-black"
-                      }`}
-                    >
-                      Mbi 40 €
-                    </button>
-
-                  </div>
-
+                  )}
                 </div>
 
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowFilters((open) => !open)}
+                    aria-expanded={showFilters}
+                    aria-controls="shop-filter-panel"
+                    className={`flex min-h-[52px] flex-1 items-center justify-center gap-2 rounded-xl border px-4 text-xs font-extrabold uppercase tracking-wide transition lg:flex-none ${
+                      showFilters
+                        ? "border-[#FF7900] bg-[#FF7900] text-black"
+                        : "border-white/15 bg-[#090909] text-white hover:border-[#FF7900]"
+                    }`}
+                  >
+                    <SlidersHorizontal size={17} />
+                    FILTRAT
+                    {filterCount > 0 && (
+                      <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${showFilters ? "bg-black text-white" : "bg-[#FF7900] text-black"}`}>
+                        {filterCount}
+                      </span>
+                    )}
+                  </button>
+
+                  <div className="relative min-w-0 flex-[1.4] lg:w-[235px] lg:flex-none">
+                    <select
+                      value={sort}
+                      onChange={(event) => setSort(event.target.value)}
+                      aria-label="Rendit produktet"
+                      className="h-[52px] w-full appearance-none rounded-xl border border-white/15 bg-[#090909] py-3 pl-3 pr-9 text-xs font-semibold text-white outline-none transition hover:border-[#FF7900] focus:border-[#FF7900] sm:pl-4"
+                    >
+                      <option value="default">Renditja</option>
+                      <option value="newest">Më të rejat</option>
+                      <option value="low-high">Çmimi: ulët – lartë</option>
+                      <option value="high-low">Çmimi: lartë – ulët</option>
+                      <option value="discount">Zbritja më e madhe</option>
+                    </select>
+                    <ChevronDown size={16} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#FF7900]" />
+                  </div>
+                </div>
+              </div>
+
+              {/* EXPANDABLE FILTERS */}
+              {showFilters && (
+                <div id="shop-filter-panel" className="mt-5 border-t border-white/10 pt-5">
+                  <p className="mb-3 text-[11px] font-extrabold uppercase tracking-[0.15em] text-neutral-300">
+                    FILTRO SIPAS ÇMIMIT
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {PRICE_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setPriceFilter(option.value)}
+                        aria-pressed={priceFilter === option.value}
+                        className={pillClass(priceFilter === option.value)}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-5 flex flex-wrap items-center justify-between gap-4 border-t border-white/10 pt-5">
+                    <label className="flex cursor-pointer items-center gap-3 text-sm text-neutral-300">
+                      <input
+                        type="checkbox"
+                        checked={onlyDiscounts}
+                        onChange={(event) => setOnlyDiscounts(event.target.checked)}
+                        className="h-4 w-4 accent-[#FF7900]"
+                      />
+                      <BadgePercent size={18} className="text-[#FF7900]" />
+                      Vetëm produktet në zbritje
+                    </label>
+                    <button
+                      type="button"
+                      onClick={resetFilters}
+                      className="inline-flex items-center gap-2 text-xs font-bold text-neutral-400 transition hover:text-[#FF7900]"
+                    >
+                      <RotateCcw size={16} /> PASTRO FILTRAT
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* RESULT STATUS */}
+            <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-5">
+              <p className="text-sm text-neutral-400" aria-live="polite">
+                {loading ? "Duke ngarkuar produktet..." : (
+                  <>U gjetën <strong className="text-white">{filteredProducts.length}</strong> produkte</>
+                )}
+                {category && <span className="text-[#FF9D3C]"> · {category}</span>}
+              </p>
+              {filterCount > 0 && (
                 <button
                   type="button"
-                  onClick={
-                    resetFilters
-                  }
-                  className="w-fit text-sm font-semibold text-black underline underline-offset-4"
+                  onClick={resetFilters}
+                  className="inline-flex items-center gap-2 text-xs font-bold text-[#FF7900] hover:text-[#FFB568]"
                 >
-                  Pastro filtrat
+                  <X size={15} /> HIQ FILTRAT
                 </button>
-
-              </div>
-
-            </div>
-          )}
-
-          {/* ================================= */}
-          {/* PRODUCTS */}
-          {/* ================================= */}
-
-          {filteredProducts.length >
-          0 ? (
-            <div className="mt-7 grid grid-cols-2 gap-x-2.5 gap-y-8 sm:mt-10 sm:gap-x-5 sm:gap-y-12 md:grid-cols-3 lg:grid-cols-4 lg:gap-x-6">
-
-              {filteredProducts.map(
-                (
-                  product
-                ) => (
-                  <ProductCard
-                    key={
-                      product.id
-                    }
-                    product={
-                      product
-                    }
-                  />
-                )
               )}
-
             </div>
-          ) : (
-            /* EMPTY STATE */
 
-            <div className="flex min-h-[320px] flex-col items-center justify-center px-4 text-center sm:min-h-[420px] sm:px-5">
-
-              <div className="flex items-center gap-3">
-
-                <span className="h-[2px] w-6 bg-[#009246]" />
-
-                <span className="h-[2px] w-6 bg-neutral-300" />
-
-                <span className="h-[2px] w-6 bg-[#CE2B37]" />
-
+            {/* PRODUCTS / LOADING / ERROR / EMPTY */}
+            {loading ? (
+              <div role="status" aria-label="Duke ngarkuar produktet" className="mt-8 grid grid-cols-2 gap-3 sm:gap-5 md:grid-cols-3 lg:grid-cols-4">
+                {Array.from({ length: 8 }).map((_, index) => (
+                  <div key={index} className="animate-pulse overflow-hidden rounded-2xl border border-white/10 bg-[#141414]">
+                    <div className="aspect-[4/5] bg-white/5" />
+                    <div className="space-y-3 p-4">
+                      <div className="h-3 w-1/2 rounded bg-white/10" />
+                      <div className="h-4 w-4/5 rounded bg-white/10" />
+                      <div className="h-5 w-1/3 rounded bg-white/10" />
+                      <div className="h-10 rounded-lg bg-[#FF7900]/15" />
+                    </div>
+                  </div>
+                ))}
               </div>
-
-              <p className="mt-6 text-[10px] font-bold tracking-[0.35em] text-neutral-400">
-                APAR
-              </p>
-
-              <h2 className="mt-4 text-2xl font-black tracking-[-0.04em] text-black sm:text-4xl">
-                Nuk u gjet asnjë produkt.
-              </h2>
-
-              <p className="mt-4 max-w-md text-sm leading-7 text-neutral-500">
-                Ndrysho kategorinë,
-                kërkimin ose filtrin e
-                çmimit dhe provo përsëri.
-              </p>
-
-              <button
-                type="button"
-                onClick={
-                  resetFilters
-                }
-                className="mt-6 flex h-11 items-center justify-center bg-black px-5 text-[12px] font-black tracking-[0.05em] text-white transition hover:bg-neutral-800 sm:mt-7 sm:h-auto sm:px-7 sm:py-4 sm:text-sm"
-              >
-                PASTRO FILTRAT
-              </button>
-
-            </div>
-          )}
-
+            ) : error ? (
+              <div role="alert" className="mt-10 rounded-2xl border border-red-500/20 bg-[#170E0E] px-6 py-16 text-center">
+                <h3 className="text-2xl font-black text-white">Gabim gjatë ngarkimit</h3>
+                <p className="mx-auto mt-3 max-w-lg text-sm leading-7 text-neutral-400">{error}</p>
+                <button
+                  type="button"
+                  onClick={() => setReloadKey((key) => key + 1)}
+                  className="mt-7 inline-flex items-center gap-2 rounded-xl bg-[#FF7900] px-6 py-3 text-sm font-black text-black hover:bg-[#FFA23D]"
+                >
+                  PROVO PËRSËRI <ArrowRight size={18} />
+                </button>
+              </div>
+            ) : filteredProducts.length > 0 ? (
+              <div className="mt-8 grid grid-cols-2 gap-x-3 gap-y-6 sm:gap-x-5 sm:gap-y-8 md:grid-cols-3 lg:grid-cols-4 lg:gap-x-6">
+                {filteredProducts.map((product) => (
+                  <ProductCard key={product.id} product={product} />
+                ))}
+              </div>
+            ) : (
+              <div className="mt-10 flex min-h-[320px] flex-col items-center justify-center rounded-2xl border border-white/10 bg-[#111111] px-5 py-14 text-center">
+                <Search size={34} className="text-[#FF7900]" />
+                <h3 className="mt-5 text-2xl font-black text-white sm:text-3xl">
+                  Nuk u gjet asnjë produkt
+                </h3>
+                <p className="mt-3 max-w-md text-sm leading-7 text-neutral-400">
+                  Provo një kategori, kërkim ose interval tjetër çmimi.
+                </p>
+                <button
+                  type="button"
+                  onClick={resetFilters}
+                  className="mt-7 inline-flex items-center gap-2 rounded-xl bg-[#FF7900] px-6 py-3 text-xs font-extrabold text-black hover:bg-[#FFA23D]"
+                >
+                  PASTRO FILTRAT <ArrowRight size={17} />
+                </button>
+              </div>
+            )}
+          </div>
         </section>
-
       </main>
-
       <Footer />
     </>
   );

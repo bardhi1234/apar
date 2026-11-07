@@ -1,194 +1,285 @@
-import {
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
 
-import {
-  Link,
-  useParams,
-} from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useParams } from "react-router-dom";
 
 import {
   ArrowLeft,
+  ArrowRight,
   Check,
+  ChevronRight,
+  Heart,
+  Info,
   Minus,
+  PackageCheck,
   Plus,
+  ShieldCheck,
   ShoppingBag,
   Truck,
-  PackageCheck,
-  ShieldCheck,
-  Heart,
 } from "lucide-react";
+
+import { FaWhatsapp } from "react-icons/fa";
 
 import Header from "../components/Header";
 import Footer from "../components/Footer";
 import ProductGallery from "../components/ProductGallery";
+import ProductCard from "../components/ProductCard";
 
 import {
   getProductById,
+  getProducts,
 } from "../services/api";
 
-import {
-  useCart,
-} from "../context/CartContext";
+import { useCart } from "../context/CartContext";
+import { useWishlist } from "../context/WishlistContext";
 
-import {
-  useWishlist,
-} from "../context/WishlistContext";
+const WHATSAPP_NUMBER = "38343977125";
+
+// ======================================
+// HELPERS
+// ======================================
+
+function asNumber(value) {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
+    return null;
+  }
+
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  const raw = String(value)
+    .trim()
+    .replace(/[\s€]/g, "");
+
+  const normalized =
+    raw.includes(",") && raw.includes(".")
+      ? raw.lastIndexOf(",") > raw.lastIndexOf(".")
+        ? raw.replace(/\./g, "").replace(",", ".")
+        : raw.replace(/,/g, "")
+      : raw.replace(",", ".");
+
+  const number = Number(normalized);
+
+  return Number.isFinite(number) ? number : null;
+}
+
+function euro(number) {
+  return new Intl.NumberFormat("de-DE", {
+    style: "currency",
+    currency: "EUR",
+  }).format(number);
+}
+
+function imageUrl(value) {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (value && typeof value === "object") {
+    return (
+      value.secure_url ||
+      value.url ||
+      value.image_url ||
+      ""
+    );
+  }
+
+  return "";
+}
+
+function variants(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => String(item).trim())
+      .filter(Boolean);
+  }
+
+  if (
+    typeof value === "string" &&
+    value.trim()
+  ) {
+    return value
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+function categoryName(value) {
+  return typeof value === "string"
+    ? value
+    : value?.name || "Suplemente";
+}
+
+function readable(value) {
+  if (
+    typeof value === "string" ||
+    typeof value === "number"
+  ) {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map(readable)
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  return "";
+}
+
+// ======================================
+// ACCORDION
+// ======================================
+
+function Accordion({ title, children }) {
+  return (
+    <details className="group border-b border-white/10">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 py-5 text-sm font-bold text-white marker:hidden [&::-webkit-details-marker]:hidden">
+        {title}
+
+        <Plus
+          size={18}
+          className="shrink-0 text-[#FF7900] transition-transform group-open:rotate-45"
+        />
+      </summary>
+
+      <div className="pb-6 text-sm leading-7 text-neutral-400">
+        {children}
+      </div>
+    </details>
+  );
+}
+
+// ======================================
+// PRODUCT PAGE
+// ======================================
 
 export default function Product() {
   const { id } = useParams();
 
-  const { addToCart } =
-    useCart();
-
-  const [product, setProduct] =
-    useState(null);
-
-  const [
-    productLoading,
-    setProductLoading,
-  ] = useState(true);
-
-  const [
-    productError,
-    setProductError,
-  ] = useState("");
-
-  const [
-    selectedSize,
-    setSelectedSize,
-  ] = useState(null);
-
-  const [
-    selectedColor,
-    setSelectedColor,
-  ] = useState(null);
-
-  const [
-    quantity,
-    setQuantity,
-  ] = useState(1);
-
-  const [
-    added,
-    setAdded,
-  ] = useState(false);
+  const { addToCart } = useCart();
 
   const {
     toggleWishlist,
     isInWishlist,
   } = useWishlist();
 
-  const favorite =
-    product
-      ? isInWishlist(product.id)
-      : false;
+  const [product, setProduct] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const relatedProducts = [];
+  const [selectedWeight, setSelectedWeight] =
+    useState(null);
+
+  const [selectedFlavor, setSelectedFlavor] =
+    useState(null);
+
+  const [quantity, setQuantity] = useState(1);
+  const [added, setAdded] = useState(false);
+
+  const [relatedProducts, setRelatedProducts] =
+    useState([]);
+
+  // ======================================
+  // LOAD PRODUCT FROM API
+  // ======================================
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadProduct() {
-      try {
-        setProductLoading(true);
-        setProductError("");
+      setLoading(true);
+      setError("");
+      setProduct(null);
+      setRelatedProducts([]);
+      setAdded(false);
 
-        const response =
-          await getProductById(id);
+      try {
+        const response = await getProductById(id);
 
         const source =
-          response.product ||
-          response.data ||
+          response?.product ||
+          response?.data ||
           response;
+
+        if (
+          !source ||
+          typeof source !== "object" ||
+          source.id == null
+        ) {
+          throw new Error("Produkti nuk u gjet.");
+        }
+
+        // Lexon fushat e reja nëse ekzistojnë.
+        // Ndryshe ruan kompatibilitetin
+        // me sizes dhe colors të APAR.
+
+        const weights = variants(
+          source.weights ?? source.sizes
+        );
+
+        const flavors = variants(
+          source.flavors ?? source.colors
+        );
+
+        const images = [
+          source.image,
+          ...(Array.isArray(source.images)
+            ? source.images
+            : []),
+        ]
+          .map(imageUrl)
+          .filter(Boolean);
 
         const normalized = {
           ...source,
 
-          price:
-            Number(
-              source.price
-            ) || 0,
+          price: asNumber(source.price),
 
-          oldPrice:
-            source.oldPrice != null
-              ? Number(
-                  source.oldPrice
-                )
-              : source.old_price != null
-                ? Number(
-                    source.old_price
-                  )
-                : null,
+          oldPrice: asNumber(
+            source.oldPrice ?? source.old_price
+          ),
 
-          stock:
-            Number(
-              source.stock
-            ) || 0,
+          stock: asNumber(source.stock),
 
-          sizes:
-            Array.isArray(
-              source.sizes
-            )
-              ? source.sizes
-              : [],
+          sizes: weights,
+          colors: flavors,
 
-          colors:
-            Array.isArray(
-              source.colors
-            )
-              ? source.colors
-              : [],
-
-          images:
-            Array.isArray(
-              source.images
-            )
-              ? source.images
-              : source.image
-                ? [source.image]
-                : [],
+          images: [...new Set(images)],
+          image: images[0] || "",
         };
 
         if (!cancelled) {
-          setProduct(
-            normalized
+          setProduct(normalized);
+
+          setSelectedWeight(
+            weights[0] || null
           );
 
-          setSelectedSize(
-            normalized.sizes?.[0] ||
-              null
-          );
-
-          setSelectedColor(
-            normalized.colors?.[0] ||
-              null
+          setSelectedFlavor(
+            flavors[0] || null
           );
 
           setQuantity(1);
-          setAdded(false);
         }
-      } catch (error) {
-        console.error(
-          "PRODUCT LOAD ERROR:",
-          error
-        );
-
+      } catch (err) {
         if (!cancelled) {
-          setProduct(null);
-
-          setProductError(
-            error.message ||
+          setError(
+            err?.message ||
               "Produkti nuk u ngarkua."
           );
         }
       } finally {
         if (!cancelled) {
-          setProductLoading(
-            false
-          );
+          setLoading(false);
         }
       }
     }
@@ -200,941 +291,961 @@ export default function Product() {
     };
   }, [id]);
 
-  const productImages =
-    useMemo(() => {
-      if (!product) return [];
+  // ======================================
+  // RELATED PRODUCTS
+  // ======================================
 
-      if (
-        Array.isArray(
-          product.images
-        ) &&
-        product.images.length > 0
-      ) {
-        return product.images;
+  useEffect(() => {
+    if (!product) return undefined;
+
+    let cancelled = false;
+
+    async function loadRelated() {
+      try {
+        const response = await getProducts();
+
+        const list = Array.isArray(response)
+          ? response
+          : Array.isArray(response?.products)
+            ? response.products
+            : [];
+
+        const currentCategory = categoryName(
+          product.category
+        ).toLocaleLowerCase("sq");
+
+        const available = list.filter(
+          (item) =>
+            item &&
+            item.active !== false &&
+            String(item.id) !== String(product.id)
+        );
+
+        const related = available.filter(
+          (item) =>
+            categoryName(
+              item.category
+            ).toLocaleLowerCase("sq") ===
+            currentCategory
+        );
+
+        if (!cancelled) {
+          setRelatedProducts(
+            related.slice(0, 4)
+          );
+        }
+      } catch {
+        if (!cancelled) {
+          setRelatedProducts([]);
+        }
       }
-
-      return product.image
-        ? [product.image]
-        : [];
-    }, [product]);
-
-  if (productLoading) {
-    return (
-      <>
-        <Header />
-
-        <main className="flex min-h-[650px] items-center justify-center bg-white">
-          <div className="text-center">
-
-            <div className="mx-auto h-9 w-9 animate-spin rounded-full border-2 border-neutral-200 border-t-black" />
-
-            <p className="mt-5 text-xs font-bold tracking-[0.2em] text-neutral-500">
-              DUKE NGARKUAR PRODUKTIN...
-            </p>
-
-          </div>
-        </main>
-
-        <Footer />
-      </>
-    );
-  }
-
-  if (!product) {
-    return (
-      <>
-        <Header />
-
-        <main className="flex min-h-[650px] items-center justify-center bg-white px-6">
-
-          <div className="max-w-xl text-center">
-
-            <p className="text-[10px] font-bold tracking-[0.4em] text-neutral-400">
-              APAR
-            </p>
-
-            <h1 className="mt-4 text-4xl font-black">
-              Produkti nuk u gjet.
-            </h1>
-
-            <p className="mt-4 text-sm text-neutral-500">
-              {productError ||
-                "Produkti nuk është më i disponueshëm."}
-            </p>
-
-            <Link
-              to="/shop"
-              className="mt-8 inline-flex bg-black px-8 py-4 text-sm font-black text-white"
-              style={{
-                color: "#ffffff",
-              }}
-            >
-              KTHEHU NË SHOP
-            </Link>
-
-          </div>
-
-        </main>
-
-        <Footer />
-      </>
-    );
-  }
-
-  const stock =
-    Math.max(
-      0,
-      Number(product.stock) || 0
-    );
-
-  const isOutOfStock =
-    stock <= 0;
-
-  const maxQuantity =
-    Math.max(1, stock);
-
-  const discountPercent =
-    product.oldPrice &&
-    product.oldPrice >
-      product.price
-      ? Math.round(
-          ((product.oldPrice -
-            product.price) /
-            product.oldPrice) *
-            100
-        )
-      : null;
-
-  const savedAmount =
-    product.oldPrice &&
-    product.oldPrice >
-      product.price
-      ? product.oldPrice -
-        product.price
-      : 0;
-
-  /*
-    ========================================
-    QUANTITY
-    ========================================
-  */
-
-  const handleDecrease = () => {
-    setQuantity(
-      (current) =>
-        Math.max(
-          1,
-          current - 1
-        )
-    );
-  };
-
-  const handleIncrease = () => {
-    setQuantity(
-      (current) =>
-        Math.min(
-          maxQuantity,
-          current + 1
-        )
-    );
-  };
-
-  /*
-    ========================================
-    ADD TO CART
-    ========================================
-  */
-
-  const handleAddToCart = () => {
-    if (isOutOfStock) {
-      return;
     }
 
+    loadRelated();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [product]);
+
+  // ======================================
+  // ADD TO CART MESSAGE TIMER
+  // ======================================
+
+  useEffect(() => {
+    if (!added) return undefined;
+
+    const timer = window.setTimeout(() => {
+      setAdded(false);
+    }, 2200);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [added]);
+
+  // ======================================
+  // PAGE TITLE
+  // ======================================
+
+  useEffect(() => {
+    document.title = product?.name
+      ? `${product.name} | ProteinFitness`
+      : "Produktet | ProteinFitness";
+  }, [product]);
+
+  // ======================================
+  // PRODUCT CALCULATIONS
+  // ======================================
+
+  const images = useMemo(
+    () => product?.images || [],
+    [product]
+  );
+
+  const favorite = product
+    ? isInWishlist(product.id)
+    : false;
+
+  const stockKnown =
+    product?.stock !== null &&
+    product?.stock !== undefined;
+
+  const outOfStock =
+    stockKnown && product.stock <= 0;
+
+  const maxQuantity = stockKnown
+    ? Math.max(1, Math.floor(product.stock))
+    : 99;
+
+  const canAdd = Boolean(
+    product &&
+      product.price !== null &&
+      product.price > 0 &&
+      !outOfStock
+  );
+
+  const discounted =
+    product &&
+    product.oldPrice !== null &&
+    product.price !== null &&
+    product.oldPrice > product.price;
+
+  const discountPercent = discounted
+    ? Math.round(
+        ((product.oldPrice - product.price) /
+          product.oldPrice) *
+          100
+      )
+    : 0;
+
+  const savedAmount = discounted
+    ? product.oldPrice - product.price
+    : 0;
+
+  const total =
+    product?.price !== null && product
+      ? product.price * quantity
+      : null;
+
+  const whatsappUrl =
+    `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(
+      product
+        ? `Përshëndetje ProteinFitness! Dua informacione për produktin: ${product.name} (PF-${product.id}).`
+        : "Përshëndetje ProteinFitness! Dua informacione për produktet."
+    )}`;
+
+  // ======================================
+  // ADD TO CART
+  // ======================================
+
+  function handleAddToCart() {
+    if (!canAdd) return;
+
+    // Ruajmë emrat size dhe color
+    // për kompatibilitet me CartContext.
+
     addToCart(product, {
-      size:
-        selectedSize,
-
-      color:
-        selectedColor,
-
+      size: selectedWeight,
+      color: selectedFlavor,
       quantity,
     });
 
     setAdded(true);
+  }
 
-    window.setTimeout(
-      () => {
-        setAdded(false);
-      },
-      1800
-    );
-  };
+  // ======================================
+  // VARIANT BUTTON STYLES
+  // ======================================
+
+  const selectedClass = (active) =>
+    `min-h-11 rounded-xl border px-4 py-2 text-sm font-bold transition-colors ${
+      active
+        ? "border-[#FF7900] bg-[#FF7900] text-black"
+        : "border-white/15 bg-[#161616] text-neutral-300 hover:border-[#FF7900]/50"
+    }`;
+
+  // ======================================
+  // RENDER
+  // ======================================
 
   return (
     <>
       <Header />
 
-      <main className="bg-white">
+      <main className="min-h-screen bg-[#080808] text-white">
 
         {/* ================================= */}
         {/* BREADCRUMB */}
         {/* ================================= */}
 
-        <div className="border-b border-neutral-100">
+        <div className="border-b border-white/10 bg-[#0C0C0C]">
+          <nav
+            aria-label="Navigimi"
+            className="mx-auto flex max-w-[1500px] items-center gap-2 px-5 py-5 text-xs sm:px-6 lg:px-10"
+          >
+            <Link
+              to="/"
+              className="text-neutral-500 hover:text-[#FF7900]"
+            >
+              Ballina
+            </Link>
 
-          <div className="mx-auto flex max-w-[1500px] items-center justify-between px-5 py-5 sm:px-6 lg:px-10">
+            <ChevronRight
+              size={13}
+              className="text-[#FF7900]"
+            />
 
             <Link
               to="/shop"
-              className="group inline-flex items-center gap-2 text-xs font-semibold tracking-[0.04em] text-neutral-500 transition hover:text-black"
+              className="text-neutral-500 hover:text-[#FF7900]"
             >
-              <ArrowLeft
-                size={16}
-                className="transition group-hover:-translate-x-1"
-              />
-
-              KTHEHU NË SHOP
+              Produktet
             </Link>
 
-            <p className="hidden text-[9px] font-bold tracking-[0.3em] text-neutral-400 sm:block">
-              APAR / PRODUKT
-            </p>
+            {product && (
+              <>
+                <ChevronRight
+                  size={13}
+                  className="text-[#FF7900]"
+                />
 
-          </div>
-
+                <span className="max-w-[210px] truncate font-semibold text-white sm:max-w-lg">
+                  {product.name}
+                </span>
+              </>
+            )}
+          </nav>
         </div>
 
         {/* ================================= */}
-        {/* PRODUCT */}
+        {/* LOADING */}
         {/* ================================= */}
 
-        <section className="mx-auto grid max-w-[1500px] gap-7 px-4 py-6 sm:gap-10 sm:px-6 sm:py-12 lg:grid-cols-[1.05fr_0.95fr] lg:gap-16 lg:px-10 lg:py-16">
+        {loading ? (
+          <div
+            role="status"
+            className="flex min-h-[580px] flex-col items-center justify-center gap-5"
+          >
+            <div className="h-10 w-10 animate-spin rounded-full border-2 border-white/10 border-t-[#FF7900]" />
 
-          {/* =============================== */}
-          {/* LEFT — GALLERY */}
-          {/* =============================== */}
-
-          <div className="relative">
-
-            {/* DESKTOP BADGES */}
-            <div className="pointer-events-none absolute left-[105px] top-4 z-20 hidden flex-wrap gap-2 lg:flex">
-
-              {product.badge && (
-                <span className="bg-black px-4 py-2 text-[9px] font-black tracking-[0.2em] text-white">
-                  {
-                    product.badge
-                  }
-                </span>
-              )}
-
-              {discountPercent && (
-                <span className="bg-[#CE2B37] px-4 py-2 text-[9px] font-black tracking-[0.2em] text-white">
-                  -
-                  {
-                    discountPercent
-                  }
-                  %
-                </span>
-              )}
-
-            </div>
-
-            <ProductGallery
-              images={
-                productImages
-              }
-              productName={
-                product.name
-              }
-            />
-
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-neutral-400">
+              Duke ngarkuar produktin...
+            </p>
           </div>
 
-          {/* =============================== */}
-          {/* RIGHT — INFO */}
-          {/* =============================== */}
+        ) : !product ? (
 
-          <div className="flex flex-col pt-1 sm:pt-2 lg:py-3">
+          /* ================================= */
+          /* PRODUCT NOT FOUND */
+          /* ================================= */
 
-            {/* CATEGORY */}
-            <div className="flex items-center gap-4">
+          <div className="mx-auto flex min-h-[560px] max-w-xl flex-col items-center justify-center px-5 text-center">
+            <Info
+              size={36}
+              className="text-[#FF7900]"
+            />
 
-              <p className="text-[9px] font-black tracking-[0.4em] text-neutral-400">
-                {product.category?.toUpperCase()}
-              </p>
+            <h1 className="mt-6 text-3xl font-black sm:text-4xl">
+              Produkti nuk u gjet
+            </h1>
 
-              <div className="flex">
+            <p className="mt-4 text-sm leading-7 text-neutral-400">
+              {error ||
+                "Produkti nuk është i disponueshëm."}
+            </p>
 
-                <span className="h-[2px] w-5 bg-[#009246]" />
+            <Link
+              to="/shop"
+              className="mt-8 inline-flex items-center gap-3 rounded-xl bg-[#FF7900] px-6 py-4 text-xs font-black text-black"
+            >
+              <ArrowLeft size={18} />
+              KTHEHU TE PRODUKTET
+            </Link>
+          </div>
 
-                <span className="h-[2px] w-5 bg-neutral-300" />
-
-                <span className="h-[2px] w-5 bg-[#CE2B37]" />
-
-              </div>
-
-            </div>
-
-            {/* MOBILE BADGES */}
-            <div className="mt-4 flex flex-wrap gap-2 lg:hidden">
-
-              {product.badge && (
-                <span className="bg-black px-3 py-2 text-[9px] font-black tracking-[0.16em] text-white">
-                  {
-                    product.badge
-                  }
-                </span>
-              )}
-
-              {discountPercent && (
-                <span className="bg-[#CE2B37] px-3 py-2 text-[9px] font-black tracking-[0.16em] text-white">
-                  -
-                  {
-                    discountPercent
-                  }
-                  %
-                </span>
-              )}
-
-            </div>
-
+        ) : (
+          <>
             {/* ================================= */}
-            {/* NAME + WISHLIST */}
+            {/* PRODUCT CONTENT */}
             {/* ================================= */}
 
-            <div className="mt-5 flex items-start justify-between gap-5">
+            <section className="relative mx-auto grid max-w-[1500px] gap-8 px-4 py-9 sm:gap-10 sm:px-6 sm:py-12 lg:grid-cols-[1fr_0.95fr] lg:gap-14 lg:px-10 lg:py-16">
 
-              <h1 className="max-w-[650px] text-[31px] font-black leading-[1] tracking-[-0.04em] text-black sm:text-5xl lg:text-[58px]">
-                {product.name}
-              </h1>
+              {/* ================================= */}
+              {/* LEFT — PRODUCT GALLERY */}
+              {/* ================================= */}
 
-              <button
-                type="button"
-                onClick={() =>
-                  toggleWishlist(
-                    product.id
-                  )
-                }
-                aria-label={
-                  favorite
-                    ? "Largo nga Wishlist"
-                    : "Shto në Wishlist"
-                }
-                title={
-                  favorite
-                    ? "Largo nga Wishlist"
-                    : "Shto në Wishlist"
-                }
-                className={`group flex h-12 w-12 flex-shrink-0 items-center justify-center border transition-all duration-300 sm:h-14 sm:w-14 ${
-                  favorite
-                    ? "border-black bg-black text-white"
-                    : "border-neutral-300 bg-white text-black hover:border-black hover:bg-black hover:text-white"
-                }`}
-              >
-                <Heart
-                  size={20}
-                  strokeWidth={
-                    1.6
-                  }
-                  fill={
-                    favorite
-                      ? "currentColor"
-                      : "none"
-                  }
-                  className="transition duration-300 group-hover:scale-110"
-                />
-              </button>
+              <div className="min-w-0">
 
-            </div>
+                <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-[#151515] p-2 sm:p-4">
 
-            {favorite && (
-              <div className="mt-3 flex items-center gap-2">
+                  {/* ORANGE LINE */}
+                  <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-[#FF7900] via-[#FFB162] to-transparent" />
 
-                <Heart
-                  size={11}
-                  fill="currentColor"
-                />
+                  {images.length ? (
+                    <ProductGallery
+                      images={images}
+                      productName={product.name}
+                    />
+                  ) : (
+                    <div className="flex aspect-[4/5] flex-col items-center justify-center text-neutral-500">
+                      <ShoppingBag
+                        size={44}
+                        className="text-[#FF7900]/50"
+                      />
 
-                <p className="text-[9px] font-black tracking-[0.16em] text-neutral-400">
-                  RUAJTUR NË WISHLIST
+                      <p className="mt-4 text-xs">
+                        Fotoja e produktit po përgatitet
+                      </p>
+                    </div>
+                  )}
+
+                </div>
+
+                <p className="mt-4 text-center text-xs text-neutral-500">
+                  Fotografitë dhe përshkrimet e produktit
+                  janë për qëllime informimi.
                 </p>
 
               </div>
-            )}
 
-            {/* ================================= */}
-            {/* PRICE */}
-            {/* ================================= */}
+              {/* ================================= */}
+              {/* RIGHT — PRODUCT INFO */}
+              {/* ================================= */}
 
-            <div className="mt-4 flex flex-wrap items-center gap-2.5 sm:mt-6 sm:gap-3">
+              <div className="min-w-0 lg:pt-2">
 
-              <span className="text-[23px] font-black tracking-[-0.02em] text-black sm:text-3xl">
-                {product.price.toFixed(
-                  2
-                )}{" "}
-                €
-              </span>
+                {/* CATEGORY */}
+                <div className="mb-5 flex flex-wrap items-center gap-2.5">
 
-              {product.oldPrice && (
-                <span className="text-base font-medium text-neutral-400 line-through sm:text-lg">
-                  {product.oldPrice.toFixed(
-                    2
-                  )}{" "}
-                  €
-                </span>
-              )}
+                  <span className="h-[2px] w-8 bg-[#FF7900]" />
 
-              {discountPercent && (
-                <span className="text-xs font-bold text-[#CE2B37]">
-                  Kursen{" "}
-                  {savedAmount.toFixed(
-                    2
-                  )}{" "}
-                  €
-                </span>
-              )}
+                  <span className="text-[10px] font-black uppercase tracking-[0.17em] text-[#FF9C37]">
+                    {categoryName(product.category)}
+                  </span>
 
-            </div>
-
-            {/* DESCRIPTION */}
-            <p className="mt-5 max-w-xl text-sm leading-6 text-neutral-600 sm:mt-7 sm:text-[15px] sm:leading-8">
-              {
-                product.description
-              }
-            </p>
-
-            {/* ================================= */}
-            {/* STOCK */}
-            {/* ================================= */}
-
-            <div className="mt-5 border-y border-neutral-200 py-4 sm:mt-6 sm:py-5">
-
-              {isOutOfStock ? (
-                <div className="flex items-center gap-3">
-
-                  <span className="h-2 w-2 rounded-full bg-red-600" />
-
-                  <span className="text-sm font-semibold text-red-600">
-                    Jashtë stokut
+                  <span className="text-[10px] text-neutral-600">
+                    PF-{product.id}
                   </span>
 
                 </div>
-              ) : (
-                <div className="flex items-center justify-between gap-4">
 
-                  <div className="flex items-center gap-3">
+                {/* ================================= */}
+                {/* PRODUCT NAME + WISHLIST */}
+                {/* ================================= */}
 
-                    <span className="relative flex h-2.5 w-2.5">
+                <div className="flex items-start gap-3 sm:gap-5">
 
-                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-40" />
+                  <h1 className="min-w-0 flex-1 break-words text-[clamp(2rem,4.5vw,4rem)] font-black uppercase leading-[1.06] tracking-[-0.045em]">
+                    {product.name}
+                  </h1>
 
-                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-600" />
-
-                    </span>
-
-                    <span className="text-sm font-semibold text-neutral-700">
-                      Në stok
-                    </span>
-
-                  </div>
-
-                  <span className="text-xs text-neutral-400">
-                    {stock} copë të
-                    disponueshme
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      toggleWishlist(product.id)
+                    }
+                    aria-label={
+                      favorite
+                        ? "Largo nga të preferuarat"
+                        : "Shto te të preferuarat"
+                    }
+                    aria-pressed={favorite}
+                    className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border transition-colors ${
+                      favorite
+                        ? "border-[#FF7900] bg-[#FF7900] text-black"
+                        : "border-white/15 bg-[#151515] hover:border-[#FF7900] hover:text-[#FF7900]"
+                    }`}
+                  >
+                    <Heart
+                      size={21}
+                      fill={
+                        favorite
+                          ? "currentColor"
+                          : "none"
+                      }
+                    />
+                  </button>
 
                 </div>
-              )}
 
-            </div>
+                {/* ================================= */}
+                {/* PRODUCT BADGES */}
+                {/* ================================= */}
 
-            {/* ================================= */}
-            {/* SIZE */}
-            {/* ================================= */}
+                <div className="mt-5 flex flex-wrap items-center gap-2">
 
-            {product.sizes?.length >
-              0 && (
-              <div className="mt-6 sm:mt-8">
+                  {product.badge && (
+                    <span className="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-[10px] font-extrabold uppercase tracking-wider">
+                      {product.badge}
+                    </span>
+                  )}
 
-                <div className="mb-3 flex items-end justify-between gap-3 sm:mb-4">
+                  {discounted && (
+                    <span className="rounded-md bg-[#FF7900] px-3 py-2 text-[10px] font-black text-black">
+                      −{discountPercent}% ZBRITJE
+                    </span>
+                  )}
 
-                  <div>
+                  {outOfStock && (
+                    <span className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-[10px] font-bold text-red-400">
+                      PA STOK
+                    </span>
+                  )}
 
-                    <p className="text-sm font-bold">
-                      Madhësia
-                    </p>
+                </div>
 
-                    {selectedSize && (
-                      <p className="mt-1 text-xs text-neutral-400">
-                        Zgjedhur:{" "}
-                        {
-                          selectedSize
-                        }
-                      </p>
+                {/* ================================= */}
+                {/* PRICE */}
+                {/* ================================= */}
+
+                <div className="mt-7 rounded-2xl border border-white/10 bg-[#131313] p-5 sm:p-6">
+
+                  <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.17em] text-neutral-500">
+                    ÇMIMI I PRODUKTIT
+                  </p>
+
+                  <div className="flex flex-wrap items-baseline gap-3">
+
+                    <span className="text-3xl font-black tracking-tight text-white sm:text-4xl">
+                      {product.price !== null
+                        ? euro(product.price)
+                        : "Çmimi në përgatitje"}
+                    </span>
+
+                    {discounted && (
+                      <span className="text-base text-neutral-500 line-through">
+                        {euro(product.oldPrice)}
+                      </span>
                     )}
 
                   </div>
 
-                  <span className="hidden text-[10px] font-semibold tracking-[0.08em] text-neutral-400 sm:block">
-                    ZGJIDH MADHËSINË
-                  </span>
-
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-
-                  {product.sizes.map(
-                    (
-                      size
-                    ) => (
-                      <button
-                        key={
-                          size
-                        }
-                        type="button"
-                        onClick={() => {
-                          setSelectedSize(
-                            size
-                          );
-
-                          setQuantity(
-                            1
-                          );
-                        }}
-                        className={`flex h-11 min-w-[48px] items-center justify-center border px-3 text-sm font-bold sm:h-12 sm:min-w-[54px] sm:px-4 transition duration-300 ${
-                          selectedSize ===
-                          size
-                            ? "border-black bg-black text-white"
-                            : "border-neutral-300 bg-white text-black hover:border-black"
-                        }`}
-                      >
-                        {
-                          size
-                        }
-                      </button>
-                    )
-                  )}
-
-                </div>
-
-              </div>
-            )}
-
-            {/* ================================= */}
-            {/* COLOR */}
-            {/* ================================= */}
-
-            {product.colors?.length >
-              0 && (
-              <div className="mt-6 sm:mt-8">
-
-                <div className="mb-4">
-
-                  <p className="text-sm font-bold">
-                    Ngjyra
-                  </p>
-
-                  {selectedColor && (
-                    <p className="mt-1 text-xs text-neutral-400">
-                      Zgjedhur:{" "}
-                      {
-                        selectedColor
-                      }
+                  {discounted && (
+                    <p className="mt-3 text-xs font-bold text-[#FF9C37]">
+                      Kursen {euro(savedAmount)} në këtë produkt
                     </p>
                   )}
 
                 </div>
 
-                <div className="flex flex-wrap gap-2">
+                {/* ================================= */}
+                {/* PRODUCT DESCRIPTION */}
+                {/* ================================= */}
 
-                  {product.colors.map(
-                    (
-                      color
-                    ) => (
-                      <button
-                        key={
-                          color
-                        }
-                        type="button"
-                        onClick={() => {
-                          setSelectedColor(
-                            color
-                          );
+                {product.description && (
+                  <p className="mt-6 border-l-[3px] border-[#FF7900] pl-4 text-sm leading-8 text-neutral-400">
+                    {readable(product.description)}
+                  </p>
+                )}
 
-                          setQuantity(
-                            1
-                          );
-                        }}
-                        className={`border px-5 py-3 text-sm font-semibold transition duration-300 ${
-                          selectedColor ===
-                          color
-                            ? "border-black bg-black text-white"
-                            : "border-neutral-300 bg-white text-black hover:border-black"
-                        }`}
-                      >
-                        {
-                          color
-                        }
-                      </button>
-                    )
+                {/* ================================= */}
+                {/* SUPPLEMENT INFORMATION */}
+                {/* ================================= */}
+
+                <div className="mt-6 flex flex-wrap gap-2">
+
+                  {product.brand && (
+                    <span className="rounded-lg border border-white/10 bg-white/[0.035] px-3 py-2 text-xs text-neutral-300">
+                      Marka:{" "}
+                      <strong className="text-white">
+                        {readable(product.brand)}
+                      </strong>
+                    </span>
+                  )}
+
+                  {product.weight && (
+                    <span className="rounded-lg border border-white/10 bg-white/[0.035] px-3 py-2 text-xs text-neutral-300">
+                      Pesha:{" "}
+                      <strong className="text-white">
+                        {readable(product.weight)}
+                      </strong>
+                    </span>
+                  )}
+
+                  {product.flavor && (
+                    <span className="rounded-lg border border-white/10 bg-white/[0.035] px-3 py-2 text-xs text-neutral-300">
+                      Shija:{" "}
+                      <strong className="text-white">
+                        {readable(product.flavor)}
+                      </strong>
+                    </span>
                   )}
 
                 </div>
 
-              </div>
-            )}
-
-            {/* ================================= */}
-            {/* QUANTITY */}
-            {/* ================================= */}
-
-            {!isOutOfStock && (
-              <div className="mt-6 sm:mt-8">
-
-                <div className="mb-3 flex items-end justify-between gap-3 sm:mb-4">
-
-                  <p className="text-sm font-bold">
-                    Sasia
-                  </p>
-
-                  <span className="text-xs text-neutral-400">
-                    Maksimum{" "}
-                    {
-                      stock
-                    }
-                  </span>
-
-                </div>
-
-                <div className="flex w-fit items-center border border-neutral-300">
-
-                  <button
-                    type="button"
-                    aria-label="Zvogëlo sasinë"
-                    disabled={
-                      quantity <= 1
-                    }
-                    onClick={
-                      handleDecrease
-                    }
-                    className="flex h-11 w-11 items-center justify-center transition hover:bg-neutral-100 sm:h-12 sm:w-12 disabled:cursor-not-allowed disabled:opacity-30"
-                  >
-                    <Minus
-                      size={16}
-                    />
-                  </button>
-
-                  <span className="flex h-11 w-12 items-center justify-center border-x border-neutral-300 text-sm font-bold sm:h-12 sm:w-14">
-                    {
-                      quantity
-                    }
-                  </span>
-
-                  <button
-                    type="button"
-                    aria-label="Rrit sasinë"
-                    disabled={
-                      quantity >= stock
-                    }
-                    onClick={
-                      handleIncrease
-                    }
-                    className="flex h-11 w-11 items-center justify-center transition hover:bg-neutral-100 sm:h-12 sm:w-12 disabled:cursor-not-allowed disabled:opacity-30"
-                  >
-                    <Plus
-                      size={16}
-                    />
-                  </button>
-
-                </div>
-
-              </div>
-            )}
-
-            {/* ================================= */}
-            {/* ADD TO CART */}
-            {/* ================================= */}
-
-            <button
-              type="button"
-              disabled={
-                isOutOfStock
-              }
-              onClick={
-                handleAddToCart
-              }
-              className={`mt-7 flex min-h-[54px] w-full items-center justify-center gap-2.5 px-5 text-[13px] font-black tracking-[0.06em] sm:mt-9 sm:min-h-[60px] sm:gap-3 sm:px-8 sm:text-sm sm:tracking-[0.08em] transition duration-300 ${
-                isOutOfStock
-                  ? "cursor-not-allowed bg-neutral-200 text-neutral-500"
-                  : added
-                  ? "bg-green-700 text-white"
-                  : "bg-black text-white hover:bg-neutral-800"
-              }`}
-            >
-              {isOutOfStock ? (
-                "JASHTË STOKUT"
-              ) : added ? (
-                <>
-                  <Check
-                    size={19}
-                  />
-
-                  U SHTUA NË SHPORTË
-                </>
-              ) : (
-                <>
-                  <ShoppingBag
-                    size={19}
-                  />
-
-                  SHTO NË SHPORTË
-                </>
-              )}
-            </button>
-
-            {!isOutOfStock && (
-              <p className="mt-3 text-center text-[11px] leading-5 text-neutral-400">
-                Madhësia, ngjyra dhe
-                sasia e zgjedhur ruhen
-                në shportë.
-              </p>
-            )}
-
-            {/* ================================= */}
-            {/* SERVICES */}
-            {/* ================================= */}
-
-            <div className="mt-7 grid gap-4 border-t border-neutral-200 pt-6 sm:mt-9 sm:grid-cols-2 sm:gap-5 sm:pt-8">
-
-              {/* PAYMENT */}
-              <div className="flex gap-4">
-
-                <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center bg-neutral-100 sm:h-11 sm:w-11">
-
-                  <PackageCheck
-                    size={20}
-                    strokeWidth={
-                      1.6
-                    }
-                  />
-
-                </div>
-
-                <div>
-
-                  <p className="text-sm font-bold">
-                    Pagesë në dorëzim
-                  </p>
-
-                  <p className="mt-1 text-xs leading-5 text-neutral-500">
-                    Paguaj kur ta pranosh
-                    porosinë.
-                  </p>
-
-                </div>
-
-              </div>
-
-              {/* DELIVERY */}
-              <div className="flex gap-4">
-
-                <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center bg-neutral-100 sm:h-11 sm:w-11">
-
-                  <Truck
-                    size={20}
-                    strokeWidth={
-                      1.6
-                    }
-                  />
-
-                </div>
-
-                <div>
-
-                  <p className="text-sm font-bold">
-                    Dërgesë
-                  </p>
-
-                  <p className="mt-1 text-xs leading-5 text-neutral-500">
-                    Kosovë · Shqipëri ·
-                    Maqedoni e Veriut
-                  </p>
-
-                </div>
-
-              </div>
-
-            </div>
-
-            {/* ================================= */}
-            {/* DETAILS */}
-            {/* ================================= */}
-
-            <div className="mt-8 border-t border-neutral-200">
-
-              <details className="group border-b border-neutral-200">
-
-                <summary className="flex cursor-pointer list-none items-center justify-between py-5 text-sm font-bold">
-
-                  Detajet e produktit
-
-                  <Plus
-                    size={17}
-                    className="transition duration-300 group-open:rotate-45"
-                  />
-
-                </summary>
-
-                <div className="pb-6 text-sm leading-7 text-neutral-500">
-
-                  {
-                    product.description
-                  }
-
-                  <div className="mt-4 space-y-2">
-
-                    <p>
-                      <span className="font-semibold text-black">
-                        Kategoria:
-                      </span>{" "}
-                      {
-                        product.category
-                      }
-                    </p>
-
-                    <p>
-                      <span className="font-semibold text-black">
-                        Stoku:
-                      </span>{" "}
-                      {stock} copë
-                    </p>
-
-                  </div>
-
-                </div>
-
-              </details>
-
-              <details className="group border-b border-neutral-200">
-
-                <summary className="flex cursor-pointer list-none items-center justify-between py-5 text-sm font-bold">
-
-                  Pagesa & dërgesa
-
-                  <Plus
-                    size={17}
-                    className="transition duration-300 group-open:rotate-45"
-                  />
-
-                </summary>
-
-                <div className="pb-6 text-sm leading-7 text-neutral-500">
-
-                  <div className="flex gap-3">
-
-                    <ShieldCheck
-                      size={19}
-                      className="mt-1 flex-shrink-0 text-black"
-                    />
-
-                    <p>
-                      Pagesa bëhet në
-                      dorëzim. Dërgesa
-                      është e disponueshme
-                      në Kosovë, Shqipëri
-                      dhe Maqedoni të
-                      Veriut. Kostoja
-                      finale llogaritet
-                      gjatë checkout-it.
-                    </p>
-
-                  </div>
-
-                </div>
-
-              </details>
-
-            </div>
-
-          </div>
-
-        </section>
-
-        {/* ================================= */}
-        {/* RELATED PRODUCTS */}
-        {/* ================================= */}
-
-        {relatedProducts.length >
-          0 && (
-          <section className="border-t border-neutral-200 bg-[#f7f7f5]">
-
-            <div className="mx-auto max-w-[1500px] px-5 py-14 sm:px-6 lg:px-10 lg:py-20">
-
-              <div className="mb-10 flex flex-col justify-between gap-6 border-b border-neutral-200 pb-7 sm:flex-row sm:items-end">
-
-                <div>
+                {/* ================================= */}
+                {/* STOCK STATUS */}
+                {/* ================================= */}
+
+                <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-y border-white/10 py-5">
 
                   <div className="flex items-center gap-3">
 
-                    <span className="h-[2px] w-7 bg-[#009246]" />
+                    <span
+                      className={`h-2.5 w-2.5 rounded-full ${
+                        outOfStock
+                          ? "bg-red-500"
+                          : stockKnown
+                            ? "bg-green-500"
+                            : "bg-amber-500"
+                      }`}
+                    />
 
-                    <p className="text-[9px] font-black tracking-[0.35em] text-neutral-400">
-                      APAR SELECTION
-                    </p>
-
-                    <span className="h-[2px] w-7 bg-[#CE2B37]" />
+                    <span className="text-sm font-semibold">
+                      {outOfStock
+                        ? "Jashtë stokut"
+                        : stockKnown
+                          ? "Në stok"
+                          : "Stoku duhet konfirmuar"}
+                    </span>
 
                   </div>
 
-                  <h2 className="mt-4 text-3xl font-black tracking-[-0.04em] sm:text-4xl lg:text-5xl">
-                    MUND TË TË
-                    PËLQEJNË
-                  </h2>
-
-                  <p className="mt-3 max-w-xl text-sm leading-7 text-neutral-500">
-                    Produkte të tjera
-                    të zgjedhura nga
-                    koleksioni APAR.
-                  </p>
+                  {stockKnown && !outOfStock && (
+                    <span className="text-xs text-neutral-500">
+                      {Math.floor(product.stock)} copë të disponueshme
+                    </span>
+                  )}
 
                 </div>
 
-                <Link
-                  to="/shop"
-                  className="group flex items-center gap-3 text-[10px] font-black tracking-[0.14em] text-black"
-                >
-                  SHIKO TË GJITHA
+                {/* ================================= */}
+                {/* WEIGHT OPTIONS */}
+                {/* ================================= */}
 
-                  <ArrowLeft
-                    size={15}
-                    className="rotate-180 transition duration-300 group-hover:translate-x-1"
-                  />
-                </Link>
+                {product.sizes.length > 0 && (
+                  <div className="mt-7">
 
-              </div>
+                    <p className="mb-3 text-sm font-bold">
+                      Pesha / Paketimi
+                    </p>
 
-              <div className="grid grid-cols-2 gap-x-4 gap-y-10 md:grid-cols-3 lg:grid-cols-4 lg:gap-x-6">
+                    <div className="flex flex-wrap gap-2">
 
-                {relatedProducts.map(
-                  (
-                    relatedProduct
-                  ) => (
-                    <ProductCard
-                      key={
-                        relatedProduct.id
-                      }
-                      product={
-                        relatedProduct
-                      }
-                    />
-                  )
+                      {product.sizes.map((weight) => (
+                        <button
+                          key={weight}
+                          type="button"
+                          onClick={() => {
+                            setSelectedWeight(weight);
+                            setQuantity(1);
+                          }}
+                          aria-pressed={
+                            selectedWeight === weight
+                          }
+                          className={selectedClass(
+                            selectedWeight === weight
+                          )}
+                        >
+                          {weight}
+                        </button>
+                      ))}
+
+                    </div>
+
+                  </div>
                 )}
 
+                {/* ================================= */}
+                {/* FLAVOR OPTIONS */}
+                {/* ================================= */}
+
+                {product.colors.length > 0 && (
+                  <div className="mt-7">
+
+                    <p className="mb-3 text-sm font-bold">
+                      Shija / Varianti
+                    </p>
+
+                    <div className="flex flex-wrap gap-2">
+
+                      {product.colors.map((flavor) => (
+                        <button
+                          key={flavor}
+                          type="button"
+                          onClick={() => {
+                            setSelectedFlavor(flavor);
+                            setQuantity(1);
+                          }}
+                          aria-pressed={
+                            selectedFlavor === flavor
+                          }
+                          className={selectedClass(
+                            selectedFlavor === flavor
+                          )}
+                        >
+                          {flavor}
+                        </button>
+                      ))}
+
+                    </div>
+
+                  </div>
+                )}
+
+                {/* ================================= */}
+                {/* QUANTITY */}
+                {/* ================================= */}
+
+                {canAdd && (
+                  <div className="mt-7">
+
+                    <div className="mb-3 flex items-center justify-between gap-3">
+
+                      <p className="text-sm font-bold">
+                        Sasia
+                      </p>
+
+                      {stockKnown && (
+                        <span className="text-xs text-neutral-500">
+                          Maksimumi {maxQuantity}
+                        </span>
+                      )}
+
+                    </div>
+
+                    <div className="inline-flex overflow-hidden rounded-xl border border-white/15 bg-[#141414]">
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setQuantity((n) =>
+                            Math.max(1, n - 1)
+                          )
+                        }
+                        disabled={quantity <= 1}
+                        aria-label="Zvogëlo sasinë"
+                        className="flex h-12 w-12 items-center justify-center hover:bg-white/5 disabled:opacity-30"
+                      >
+                        <Minus size={17} />
+                      </button>
+
+                      <span className="flex h-12 w-14 items-center justify-center border-x border-white/15 text-sm font-black">
+                        {quantity}
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setQuantity((n) =>
+                            Math.min(maxQuantity, n + 1)
+                          )
+                        }
+                        disabled={quantity >= maxQuantity}
+                        aria-label="Rrit sasinë"
+                        className="flex h-12 w-12 items-center justify-center hover:bg-white/5 disabled:opacity-30"
+                      >
+                        <Plus size={17} />
+                      </button>
+
+                    </div>
+
+                  </div>
+                )}
+
+                {/* ================================= */}
+                {/* ADD TO CART */}
+                {/* ================================= */}
+
+                <button
+                  type="button"
+                  onClick={handleAddToCart}
+                  disabled={!canAdd}
+                  className={`mt-8 flex min-h-[60px] w-full items-center justify-center gap-3 rounded-xl px-5 text-sm font-black uppercase tracking-[0.06em] transition-all ${
+                    !canAdd
+                      ? "cursor-not-allowed bg-neutral-800 text-neutral-500"
+                      : added
+                        ? "bg-green-600 text-white"
+                        : "bg-[#FF7900] text-black hover:bg-[#FFA03D]"
+                  }`}
+                >
+                  {!canAdd ? (
+                    "NUK DISPONOHET PËR POROSI"
+                  ) : added ? (
+                    <>
+                      <Check size={19} />
+                      U SHTUA NË SHPORTË
+                    </>
+                  ) : (
+                    <>
+                      <ShoppingBag size={19} />
+                      SHTO NË SHPORTË
+                    </>
+                  )}
+                </button>
+
+                {canAdd && total !== null && (
+                  <p className="mt-3 text-center text-xs text-neutral-500">
+                    Totali i produkteve:{" "}
+                    <strong className="text-white">
+                      {euro(total)}
+                    </strong>
+                  </p>
+                )}
+
+                {/* ================================= */}
+                {/* WHATSAPP CONTACT */}
+                {/* ================================= */}
+
+                <a
+                  href={whatsappUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-3 flex min-h-[54px] w-full items-center justify-center gap-3 rounded-xl border border-[#FF7900]/40 bg-[#FF7900]/5 px-5 text-xs font-extrabold text-[#FF9C37] transition hover:border-[#FF7900] hover:bg-[#FF7900]/10"
+                >
+                  <FaWhatsapp size={19} />
+
+                  PYET PËR KËTË PRODUKT
+
+                  <ArrowRight size={17} />
+                </a>
+
+                {/* ================================= */}
+                {/* SERVICE CARDS */}
+                {/* ================================= */}
+
+                <div className="mt-8 grid gap-3 sm:grid-cols-2">
+
+                  <div className="flex items-start gap-3 rounded-xl border border-white/10 bg-[#131313] p-4">
+
+                    <PackageCheck
+                      size={22}
+                      className="shrink-0 text-[#FF7900]"
+                    />
+
+                    <div>
+                      <p className="text-sm font-bold">
+                        Porosi e thjeshtë
+                      </p>
+
+                      <p className="mt-1 text-xs leading-5 text-neutral-500">
+                        Zgjidh produktin dhe sasinë.
+                      </p>
+                    </div>
+
+                  </div>
+
+                  <div className="flex items-start gap-3 rounded-xl border border-white/10 bg-[#131313] p-4">
+
+                    <Truck
+                      size={22}
+                      className="shrink-0 text-[#FF7900]"
+                    />
+
+                    <div>
+                      <p className="text-sm font-bold">
+                        Informacion për dërgesën
+                      </p>
+
+                      <p className="mt-1 text-xs leading-5 text-neutral-500">
+                        Kontakto për zonën dhe koston.
+                      </p>
+                    </div>
+
+                  </div>
+
+                </div>
+
+                {/* ================================= */}
+                {/* PRODUCT DETAILS */}
+                {/* ================================= */}
+
+                <div className="mt-9 border-t border-white/10">
+
+                  <Accordion title="Detajet e produktit">
+
+                    {product.description && (
+                      <p>
+                        {readable(product.description)}
+                      </p>
+                    )}
+
+                    <div className="mt-3 space-y-1">
+
+                      <p>
+                        <strong className="text-white">
+                          Kategoria:
+                        </strong>{" "}
+                        {categoryName(product.category)}
+                      </p>
+
+                      {product.brand && (
+                        <p>
+                          <strong className="text-white">
+                            Marka:
+                          </strong>{" "}
+                          {readable(product.brand)}
+                        </p>
+                      )}
+
+                      {product.weight && (
+                        <p>
+                          <strong className="text-white">
+                            Pesha:
+                          </strong>{" "}
+                          {readable(product.weight)}
+                        </p>
+                      )}
+
+                      {product.flavor && (
+                        <p>
+                          <strong className="text-white">
+                            Shija:
+                          </strong>{" "}
+                          {readable(product.flavor)}
+                        </p>
+                      )}
+
+                    </div>
+
+                  </Accordion>
+
+                  {/* INGREDIENTS */}
+                  {(product.ingredients ||
+                    product.allergens) && (
+                    <Accordion title="Përbërësit dhe alergjenët">
+
+                      {product.ingredients && (
+                        <p>
+                          <strong className="text-white">
+                            Përbërësit:
+                          </strong>{" "}
+                          {readable(product.ingredients)}
+                        </p>
+                      )}
+
+                      {product.allergens && (
+                        <p className="mt-2">
+                          <strong className="text-white">
+                            Alergjenët:
+                          </strong>{" "}
+                          {readable(product.allergens)}
+                        </p>
+                      )}
+
+                    </Accordion>
+                  )}
+
+                  {/* NUTRITION INFO */}
+                  {product.nutrition_info && (
+                    <Accordion title="Vlerat ushqyese">
+
+                      {typeof product.nutrition_info ===
+                        "object" &&
+                      !Array.isArray(
+                        product.nutrition_info
+                      ) ? (
+                        <dl className="space-y-2">
+
+                          {Object.entries(
+                            product.nutrition_info
+                          ).map(([key, value]) => (
+                            <div
+                              key={key}
+                              className="flex justify-between gap-4 border-b border-white/5 pb-2"
+                            >
+                              <dt>{key}</dt>
+
+                              <dd className="text-right text-white">
+                                {readable(value)}
+                              </dd>
+                            </div>
+                          ))}
+
+                        </dl>
+                      ) : (
+                        <p>
+                          {readable(
+                            product.nutrition_info
+                          )}
+                        </p>
+                      )}
+
+                    </Accordion>
+                  )}
+
+                  {/* PAYMENT AND DELIVERY */}
+                  <Accordion title="Pagesa dhe dërgesa">
+
+                    <div className="flex items-start gap-3">
+
+                      <ShieldCheck
+                        size={19}
+                        className="mt-1 shrink-0 text-[#FF7900]"
+                      />
+
+                      <p>
+                        Mundësia e pagesës në dorëzim,
+                        zona e dërgesës dhe kostoja
+                        konfirmohen gjatë porosisë.
+                      </p>
+
+                    </div>
+
+                  </Accordion>
+
+                </div>
+
               </div>
 
-            </div>
+            </section>
 
-          </section>
+            {/* ================================= */}
+            {/* RELATED PRODUCTS */}
+            {/* ================================= */}
+
+            {relatedProducts.length > 0 && (
+              <section className="border-t border-white/10 bg-[#0D0D0D] py-16 sm:py-20">
+
+                <div className="mx-auto max-w-[1500px] px-5 sm:px-6 lg:px-10">
+
+                  <div className="mb-9 flex flex-wrap items-end justify-between gap-6">
+
+                    <div>
+
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#FF7900]">
+                        PROTEINFITNESS SELECTION
+                      </p>
+
+                      <h2 className="mt-3 text-3xl font-black uppercase tracking-tight sm:text-5xl">
+                        PRODUKTE{" "}
+                        <span className="text-[#FF7900]">
+                          TË NGJASHME
+                        </span>
+                      </h2>
+
+                    </div>
+
+                    <Link
+                      to="/shop"
+                      className="inline-flex items-center gap-2 text-xs font-extrabold text-[#FF9C37] hover:text-white"
+                    >
+                      SHIKO TË GJITHA
+
+                      <ArrowRight size={17} />
+                    </Link>
+
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 sm:gap-5 md:grid-cols-3 lg:grid-cols-4">
+
+                    {relatedProducts.map((item) => (
+                      <ProductCard
+                        key={item.id}
+                        product={item}
+                      />
+                    ))}
+
+                  </div>
+
+                </div>
+
+              </section>
+            )}
+
+          </>
         )}
 
       </main>

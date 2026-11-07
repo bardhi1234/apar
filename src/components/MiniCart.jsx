@@ -1,68 +1,240 @@
-import {
-  useEffect,
-} from "react";
 
+import { useEffect, useRef } from "react";
+import { Link } from "react-router-dom";
 import {
   ArrowRight,
+  ChevronLeft,
+  ImageOff,
   Minus,
   Plus,
   ShoppingBag,
   Trash2,
+  Truck,
   X,
 } from "lucide-react";
 
-import {
-  Link,
-} from "react-router-dom";
+import { useCart } from "../context/CartContext";
 
-import {
-  useCart,
-} from "../context/CartContext";
+const LOGO =
+  "https://res.cloudinary.com/dzyn3rfgk/image/upload/v1794083333/proteinfitness-logo.png_c2xpdv.png";
 
-const APAR_LOGO =
-  "https://res.cloudinary.com/dmlszpk5l/image/upload/v1790361997/ChatGPT_Image_Sep_25_2026_08_43_05_PM_aqnxkj.png";
+// ======================================
+// HELPERS
+// ======================================
+
+function toNumber(value) {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
+    return null;
+  }
+
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  const raw = String(value)
+    .trim()
+    .replace(/[\s€]/g, "");
+
+  const normalized =
+    raw.includes(",") && raw.includes(".")
+      ? raw.lastIndexOf(",") > raw.lastIndexOf(".")
+        ? raw.replace(/\./g, "").replace(",", ".")
+        : raw.replace(/,/g, "")
+      : raw.replace(",", ".");
+
+  const number = Number(normalized);
+
+  return Number.isFinite(number) ? number : null;
+}
+
+function euro(value) {
+  return new Intl.NumberFormat("de-DE", {
+    style: "currency",
+    currency: "EUR",
+  }).format(value);
+}
+
+function productImage(item) {
+  const candidate =
+    item.image ||
+    (Array.isArray(item.images)
+      ? item.images[0]
+      : null);
+
+  if (typeof candidate === "string") {
+    return candidate;
+  }
+
+  return (
+    candidate?.secure_url ||
+    candidate?.url ||
+    candidate?.image_url ||
+    ""
+  );
+}
+
+function getCategory(value) {
+  return typeof value === "string"
+    ? value
+    : value?.name || "Suplemente";
+}
+
+function getStock(item) {
+  if (
+    item.stock === null ||
+    item.stock === undefined ||
+    item.stock === ""
+  ) {
+    return null;
+  }
+
+  const number = Number(item.stock);
+
+  return Number.isFinite(number)
+    ? Math.max(0, Math.floor(number))
+    : null;
+}
+
+function getQuantity(value) {
+  return Math.max(
+    1,
+    Math.floor(Number(value) || 1)
+  );
+}
+
+// ======================================
+// MINICART
+// ======================================
 
 export default function MiniCart() {
   const {
-    cart,
+    cart = [],
     cartCount,
     cartTotal,
-
     isCartOpen,
     closeCart,
-
     removeFromCart,
     updateQuantity,
   } = useCart();
 
-  /*
-    ========================================
-    ESC + BODY SCROLL LOCK
-    ========================================
-  */
+  const dialogRef = useRef(null);
+  const closeButtonRef = useRef(null);
+
+  const items = Array.isArray(cart) ? cart : [];
+
+  const count = Number.isFinite(Number(cartCount))
+    ? Number(cartCount)
+    : items.reduce(
+        (sum, item) =>
+          sum + getQuantity(item.quantity),
+        0
+      );
+
+  const subtotal =
+    toNumber(cartTotal) ??
+    items.reduce(
+      (sum, item) =>
+        sum +
+        (toNumber(item.price) ?? 0) *
+          getQuantity(item.quantity),
+      0
+    );
+
+  // ======================================
+  // TOTAL QUANTITY PER PRODUCT
+  // ======================================
+
+  function quantityForProduct(id) {
+    return items.reduce(
+      (sum, item) =>
+        String(item.id) === String(id)
+          ? sum + getQuantity(item.quantity)
+          : sum,
+      0
+    );
+  }
+
+  // ======================================
+  // CHECKOUT VALIDATION
+  // ======================================
+
+  const hasCartIssue = items.some((item) => {
+    const price = toNumber(item.price);
+    const stock = getStock(item);
+    const qty = Number(item.quantity);
+
+    return (
+      price === null ||
+      price <= 0 ||
+      !Number.isInteger(qty) ||
+      qty <= 0 ||
+      (stock !== null &&
+        quantityForProduct(item.id) > stock)
+    );
+  });
+
+  // ======================================
+  // ESC, FOCUS, BODY SCROLL LOCK
+  // ======================================
 
   useEffect(() => {
-    if (!isCartOpen) {
-      return;
-    }
+    if (!isCartOpen) return undefined;
+
+    const previousFocus =
+      document.activeElement;
 
     const previousOverflow =
       document.body.style.overflow;
 
-    document.body.style.overflow =
-      "hidden";
+    document.body.style.overflow = "hidden";
 
-    const handleKeyDown = (
-      event
-    ) => {
-      if (
-        event.key === "Escape"
-      ) {
+    closeButtonRef.current?.focus();
+
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
         closeCart();
+        return;
       }
-    };
 
-    window.addEventListener(
+      if (
+        event.key !== "Tab" ||
+        !dialogRef.current
+      ) {
+        return;
+      }
+
+      const focusable = Array.from(
+        dialogRef.current.querySelectorAll(
+          'a[href], button:not([disabled]), input:not([disabled])'
+        )
+      );
+
+      if (!focusable.length) return;
+
+      const first = focusable[0];
+      const last =
+        focusable[focusable.length - 1];
+
+      if (
+        event.shiftKey &&
+        document.activeElement === first
+      ) {
+        event.preventDefault();
+        last.focus();
+      } else if (
+        !event.shiftKey &&
+        document.activeElement === last
+      ) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener(
       "keydown",
       handleKeyDown
     );
@@ -71,69 +243,25 @@ export default function MiniCart() {
       document.body.style.overflow =
         previousOverflow;
 
-      window.removeEventListener(
+      document.removeEventListener(
         "keydown",
         handleKeyDown
       );
+
+      previousFocus?.focus?.();
     };
-  }, [
-    isCartOpen,
-    closeCart,
-  ]);
-
-  const getNumber = (
-    value
-  ) => {
-    if (
-      typeof value === "number" &&
-      Number.isFinite(value)
-    ) {
-      return value;
-    }
-
-    const parsed = Number(
-      String(value || "")
-        .replace(",", ".")
-        .replace(
-          /[^0-9.-]/g,
-          ""
-        )
-    );
-
-    return Number.isFinite(parsed)
-      ? parsed
-      : 0;
-  };
-
-  const getMaxStock = (
-    item
-  ) => {
-    const stock =
-      Number(item.stock);
-
-    if (
-      Number.isFinite(stock)
-    ) {
-      return Math.max(
-        0,
-        stock
-      );
-    }
-
-    return 99;
-  };
+  }, [isCartOpen, closeCart]);
 
   return (
     <>
       {/* ================================= */}
-      {/* OVERLAY */}
+      {/* BACKDROP */}
       {/* ================================= */}
 
       <div
-        onClick={
-          closeCart
-        }
-        className={`fixed inset-0 z-[110] bg-black/70 backdrop-blur-[5px] transition-all duration-500 ${
+        aria-hidden="true"
+        onClick={closeCart}
+        className={`fixed inset-0 z-[110] bg-black/75 backdrop-blur-[5px] transition-opacity duration-300 ${
           isCartOpen
             ? "visible opacity-100"
             : "pointer-events-none invisible opacity-0"
@@ -145,76 +273,69 @@ export default function MiniCart() {
       {/* ================================= */}
 
       <aside
-        aria-hidden={
-          !isCartOpen
+        ref={dialogRef}
+        role="dialog"
+        aria-modal={
+          isCartOpen ? "true" : undefined
         }
-        className={`fixed right-0 top-0 z-[120] flex h-[100dvh] w-full max-w-[470px] flex-col bg-[#f8f8f6] shadow-[-30px_0_100px_rgba(0,0,0,0.35)] transition-transform duration-500 ease-out ${
+        aria-label="Shporta e ProteinFitness"
+        aria-hidden={!isCartOpen}
+        className={`fixed right-0 top-0 z-[120] flex h-[100dvh] w-full max-w-[470px] flex-col overflow-hidden border-l border-white/10 bg-[#0B0B0B] text-white shadow-[-25px_0_100px_rgba(0,0,0,0.6)] transition-all duration-300 ease-out ${
           isCartOpen
-            ? "translate-x-0"
-            : "translate-x-full"
+            ? "visible translate-x-0"
+            : "pointer-events-none invisible translate-x-full"
         }`}
       >
 
-        {/* APAR LINE */}
-        <div className="flex h-[2px] w-full flex-shrink-0">
-
-          <span className="flex-1 bg-[#009246]" />
-
-          <span className="flex-1 bg-white" />
-
-          <span className="flex-1 bg-[#CE2B37]" />
-
-        </div>
+        {/* ORANGE TOP LINE */}
+        <div className="h-[3px] shrink-0 bg-gradient-to-r from-[#FF7900] via-[#FFB35D] to-[#FF7900]" />
 
         {/* ================================= */}
         {/* HEADER */}
         {/* ================================= */}
 
-        <div className="flex flex-shrink-0 items-center justify-between border-b border-neutral-200 bg-black px-5 py-5 text-white sm:px-6">
+        <div className="flex shrink-0 items-center justify-between gap-4 border-b border-white/10 bg-[#111111] px-5 py-5 sm:px-6">
 
-          <div>
+          <div className="flex min-w-0 items-center gap-3">
 
             <img
-              src={APAR_LOGO}
-              alt="APAR"
-              className="w-[105px] object-contain mix-blend-screen"
+              src={LOGO}
+              alt="ProteinFitness"
+              className="h-14 w-16 shrink-0 object-contain"
             />
 
-            <div className="mt-2 flex items-center gap-2">
+            <div className="min-w-0">
 
-              <ShoppingBag
-                size={13}
-                strokeWidth={1.7}
-              />
-
-              <p className="text-[9px] font-bold tracking-[0.28em] text-neutral-500">
-                SHOPPING BAG
+              <p className="text-[10px] font-black uppercase tracking-[0.14em] text-[#FF7900]">
+                PROTEINFITNESS
               </p>
 
-              {cartCount >
-                0 && (
-                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-white px-1.5 text-[9px] font-black text-black">
-                  {
-                    cartCount
-                  }
-                </span>
-              )}
+              <div className="mt-1 flex items-center gap-2">
+
+                <h2 className="text-lg font-black uppercase tracking-tight sm:text-xl">
+                  SHPORTA JOTE
+                </h2>
+
+                {count > 0 && (
+                  <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-[#FF7900] px-1.5 text-[11px] font-black text-black">
+                    {count}
+                  </span>
+                )}
+
+              </div>
 
             </div>
-
           </div>
 
+          {/* CLOSE */}
           <button
+            ref={closeButtonRef}
             type="button"
-            onClick={
-              closeCart
-            }
+            onClick={closeCart}
             aria-label="Mbyll shportën"
-            className="flex h-11 w-11 items-center justify-center border border-white/10 bg-white/[0.04] text-white transition duration-300 hover:border-white hover:bg-white hover:text-black"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/[0.04] text-white transition hover:border-[#FF7900] hover:bg-[#FF7900] hover:text-black"
           >
-            <X
-              size={19}
-            />
+            <X size={20} />
           </button>
 
         </div>
@@ -223,51 +344,41 @@ export default function MiniCart() {
         {/* EMPTY CART */}
         {/* ================================= */}
 
-        {cart.length ===
-        0 ? (
-          <div className="flex flex-1 flex-col items-center justify-center px-7 text-center">
+        {items.length === 0 ? (
+          <div className="flex flex-1 flex-col items-center justify-center px-7 py-14 text-center">
 
-            <div className="flex h-20 w-20 items-center justify-center rounded-full border border-neutral-200 bg-white">
-
+            <div className="flex h-24 w-24 items-center justify-center rounded-3xl border border-[#FF7900]/25 bg-[#FF7900]/10">
               <ShoppingBag
-                size={30}
-                strokeWidth={1.2}
-                className="text-neutral-300"
+                size={38}
+                strokeWidth={1.4}
+                className="text-[#FF7900]"
               />
-
             </div>
 
-            <p className="mt-8 text-[9px] font-black tracking-[0.35em] text-neutral-400">
-              APAR BAG
+            <p className="mt-7 text-[10px] font-black uppercase tracking-[0.22em] text-[#FF7900]">
+              PROTEINFITNESS STORE
             </p>
 
-            <h3 className="mt-3 text-3xl font-black tracking-[-0.04em]">
-              Shporta është bosh.
+            <h3 className="mt-3 text-3xl font-black uppercase tracking-tight">
+              SHPORTA ËSHTË BOSH.
             </h3>
 
-            <p className="mt-4 max-w-xs text-sm leading-7 text-neutral-500">
-              Zbulo koleksionin
-              APAR dhe shto
-              produktet që të
-              pëlqejnë.
+            <p className="mt-4 max-w-xs text-sm leading-7 text-neutral-400">
+              Zbulo proteinat, kreatinën dhe
+              aksesorët sportivë dhe shto produktet
+              që të duhen.
             </p>
 
             <Link
               to="/shop"
-              onClick={
-                closeCart
-              }
-              style={{
-                color:
-                  "#ffffff",
-              }}
-              className="group mt-8 flex min-h-[56px] w-full max-w-[280px] items-center justify-between bg-black px-6 text-xs font-black tracking-[0.12em] text-white"
+              onClick={closeCart}
+              className="group mt-8 inline-flex min-h-[54px] w-full max-w-[290px] items-center justify-between rounded-xl bg-[#FF7900] px-6 text-xs font-black uppercase tracking-wide text-black transition hover:bg-[#FFA33E]"
             >
-              SHOP COLLECTION
+              SHIKO PRODUKTET
 
               <ArrowRight
-                size={16}
-                className="transition duration-300 group-hover:translate-x-1"
+                size={19}
+                className="transition group-hover:translate-x-1"
               />
             </Link>
 
@@ -275,434 +386,352 @@ export default function MiniCart() {
         ) : (
           <>
             {/* ================================= */}
-            {/* PRODUCT LIST */}
+            {/* SCROLLABLE PRODUCT LIST */}
             {/* ================================= */}
 
-            <div className="flex-1 overflow-y-auto overscroll-contain">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 sm:px-6">
 
-              <div className="px-5 sm:px-6">
+              {items.map((item, index) => {
+                const price = toNumber(item.price);
 
-                {cart.map(
-                  (
-                    item,
-                    index
-                  ) => {
-                    const price =
-                      getNumber(
-                        item.price
-                      );
+                const oldPrice = toNumber(
+                  item.oldPrice ?? item.old_price
+                );
 
-                    const oldPrice =
-                      getNumber(
-                        item.oldPrice
-                      );
+                const quantity = getQuantity(
+                  item.quantity
+                );
 
-                    const maxStock =
-                      getMaxStock(
-                        item
-                      );
+                const stock = getStock(item);
 
-                    const atMaxStock =
-                      item.quantity >=
-                      maxStock;
+                const combinedQuantity =
+                  quantityForProduct(item.id);
 
-                    const discount =
-                      oldPrice >
-                      price
-                        ? Math.round(
-                            ((oldPrice -
-                              price) /
-                              oldPrice) *
-                              100
-                          )
-                        : null;
+                const availableForThisVariant =
+                  (stock ?? 99) -
+                  (combinedQuantity - quantity);
 
-                    return (
-                      <div
-                        key={`${item.id}-${item.size || "no-size"}-${item.color || "no-color"}-${index}`}
-                        className="border-b border-neutral-200 py-6"
+                const atMax =
+                  quantity >= availableForThisVariant;
+
+                const discounted =
+                  price !== null &&
+                  oldPrice !== null &&
+                  oldPrice > price;
+
+                const discount = discounted
+                  ? Math.round(
+                      ((oldPrice - price) /
+                        oldPrice) *
+                        100
+                    )
+                  : 0;
+
+                const image = productImage(item);
+
+                const lineTotal =
+                  price === null
+                    ? null
+                    : price * quantity;
+
+                return (
+                  <article
+                    key={`${item.id}-${item.size ?? ""}-${item.color ?? ""}-${index}`}
+                    className="border-b border-white/10 py-6"
+                  >
+
+                    <div className="flex gap-4">
+
+                      {/* PRODUCT IMAGE */}
+                      <Link
+                        to={`/product/${encodeURIComponent(item.id)}`}
+                        onClick={closeCart}
+                        className="relative h-[118px] w-[96px] shrink-0 overflow-hidden rounded-xl border border-white/10 bg-[#202020]"
                       >
 
-                        <div className="flex gap-4">
-
-                          {/* IMAGE */}
-                          <Link
-                            to={`/product/${item.id}`}
-                            onClick={
-                              closeCart
-                            }
-                            className="relative h-[128px] w-[102px] flex-shrink-0 overflow-hidden bg-neutral-200"
-                          >
-                            <img
-                              src={
-                                item.image
-                              }
-                              alt={
-                                item.name
-                              }
-                              className="h-full w-full object-cover transition duration-700 hover:scale-105"
+                        {image ? (
+                          <img
+                            src={image}
+                            alt={item.name || "Produkt"}
+                            loading="lazy"
+                            className="h-full w-full object-contain p-2 transition-transform duration-500 hover:scale-105"
+                          />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center">
+                            <ImageOff
+                              size={28}
+                              className="text-neutral-600"
                             />
+                          </div>
+                        )}
 
-                            {/* NUMBER */}
-                            <span className="absolute bottom-2 left-2 bg-black/80 px-2 py-1 text-[7px] font-bold tracking-[0.15em] text-white backdrop-blur">
-                              {String(
-                                index +
-                                  1
-                              ).padStart(
-                                2,
-                                "0"
-                              )}
-                            </span>
+                        {/* DISCOUNT */}
+                        {discounted && (
+                          <span className="absolute left-1.5 top-1.5 rounded bg-[#FF7900] px-1.5 py-1 text-[9px] font-black text-black">
+                            -{discount}%
+                          </span>
+                        )}
 
-                          </Link>
+                      </Link>
 
-                          {/* INFO */}
-                          <div className="flex min-w-0 flex-1 flex-col">
+                      {/* PRODUCT INFORMATION */}
+                      <div className="flex min-w-0 flex-1 flex-col">
 
-                            <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start justify-between gap-2">
 
-                              <div className="min-w-0">
+                          <div className="min-w-0">
 
-                                <p className="text-[8px] font-bold uppercase tracking-[0.25em] text-neutral-400">
-                                  {
-                                    item.category
-                                  }
-                                </p>
+                            <p className="text-[9px] font-extrabold uppercase tracking-wider text-[#FF9C37]">
+                              {getCategory(item.category)}
+                            </p>
 
-                                <Link
-                                  to={`/product/${item.id}`}
-                                  onClick={
-                                    closeCart
-                                  }
-                                  className="mt-2 block text-sm font-black leading-5 text-black transition hover:text-neutral-500"
-                                >
-                                  {
-                                    item.name
-                                  }
-                                </Link>
-
-                              </div>
-
-                              {/* REMOVE */}
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  removeFromCart(
-                                    item.id,
-                                    item.size,
-                                    item.color
-                                  )
-                                }
-                                aria-label={`Largo ${item.name}`}
-                                className="flex h-8 w-8 flex-shrink-0 items-center justify-center text-neutral-400 transition hover:bg-red-50 hover:text-red-600"
-                              >
-                                <Trash2
-                                  size={
-                                    15
-                                  }
-                                  strokeWidth={
-                                    1.7
-                                  }
-                                />
-                              </button>
-
-                            </div>
-
-                            {/* VARIANTS */}
-                            {(item.size ||
-                              item.color) && (
-                              <div className="mt-3 flex flex-wrap gap-1.5">
-
-                                {item.size && (
-                                  <span className="border border-neutral-200 bg-white px-2 py-1 text-[8px] font-bold tracking-[0.08em] text-neutral-600">
-                                    SIZE{" "}
-                                    {
-                                      item.size
-                                    }
-                                  </span>
-                                )}
-
-                                {item.color && (
-                                  <span className="border border-neutral-200 bg-white px-2 py-1 text-[8px] font-bold tracking-[0.08em] text-neutral-600">
-                                    {
-                                      item.color
-                                    }
-                                  </span>
-                                )}
-
-                              </div>
-                            )}
-
-                            {/* PRICE */}
-                            <div className="mt-3 flex items-center gap-2">
-
-                              <span className="text-sm font-black">
-                                {price.toFixed(
-                                  2
-                                )}{" "}
-                                €
-                              </span>
-
-                              {oldPrice >
-                                price && (
-                                <span className="text-[10px] text-neutral-400 line-through">
-                                  {oldPrice.toFixed(
-                                    2
-                                  )}{" "}
-                                  €
-                                </span>
-                              )}
-
-                              {discount && (
-                                <span className="text-[9px] font-black text-[#CE2B37]">
-                                  -
-                                  {
-                                    discount
-                                  }
-                                  %
-                                </span>
-                              )}
-
-                            </div>
+                            <Link
+                              to={`/product/${encodeURIComponent(item.id)}`}
+                              onClick={closeCart}
+                              className="mt-1.5 block text-sm font-black leading-5 text-white hover:text-[#FF9C37]"
+                            >
+                              {item.name || "Produkt"}
+                            </Link>
 
                           </div>
+
+                          {/* REMOVE */}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              removeFromCart(
+                                item.id,
+                                item.size,
+                                item.color
+                              )
+                            }
+                            aria-label={`Largo ${item.name || "produktin"} nga shporta`}
+                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/10 text-neutral-400 transition hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-400"
+                          >
+                            <Trash2 size={16} />
+                          </button>
 
                         </div>
 
-                        {/* ================================= */}
-                        {/* QUANTITY + TOTAL */}
-                        {/* ================================= */}
+                        {/* VARIANTS */}
+                        {(item.size || item.color) && (
+                          <div className="mt-2.5 flex flex-wrap gap-1.5">
 
-                        <div className="mt-5 flex items-end justify-between gap-4">
-
-                          <div>
-
-                            <p className="mb-2 text-[8px] font-bold tracking-[0.2em] text-neutral-400">
-                              QUANTITY
-                            </p>
-
-                            <div className="flex h-10 items-center border border-neutral-300 bg-white">
-
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  updateQuantity(
-                                    item.id,
-                                    item.size,
-                                    item.color,
-                                    item.quantity -
-                                      1
-                                  )
-                                }
-                                disabled={
-                                  item.quantity <=
-                                  1
-                                }
-                                aria-label="Zvogëlo sasinë"
-                                className="flex h-full w-10 items-center justify-center transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-25"
-                              >
-                                <Minus
-                                  size={
-                                    13
-                                  }
-                                />
-                              </button>
-
-                              <span className="flex h-full min-w-[42px] items-center justify-center border-x border-neutral-200 px-2 text-xs font-black">
-                                {
-                                  item.quantity
-                                }
+                            {item.size && (
+                              <span className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[10px] text-neutral-300">
+                                Pesha:{" "}
+                                <strong className="text-white">
+                                  {item.size}
+                                </strong>
                               </span>
+                            )}
 
-                              <button
-                                type="button"
-                                disabled={
-                                  atMaxStock
-                                }
-                                onClick={() =>
-                                  updateQuantity(
-                                    item.id,
-                                    item.size,
-                                    item.color,
-                                    item.quantity +
-                                      1
-                                  )
-                                }
-                                aria-label="Rrit sasinë"
-                                className="flex h-full w-10 items-center justify-center transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-25"
-                              >
-                                <Plus
-                                  size={
-                                    13
-                                  }
-                                />
-                              </button>
-
-                            </div>
-
-                            {atMaxStock && (
-                              <p className="mt-2 text-[9px] font-semibold text-amber-600">
-                                Maksimumi
-                                në stok:{" "}
-                                {
-                                  maxStock
-                                }
-                              </p>
+                            {item.color && (
+                              <span className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[10px] text-neutral-300">
+                                Shija:{" "}
+                                <strong className="text-white">
+                                  {item.color}
+                                </strong>
+                              </span>
                             )}
 
                           </div>
+                        )}
 
-                          {/* LINE TOTAL */}
-                          <div className="text-right">
+                        {/* PRICE */}
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
 
-                            <p className="text-[8px] font-bold tracking-[0.18em] text-neutral-400">
-                              TOTAL
-                            </p>
+                          <strong className="text-base font-black text-white">
+                            {price !== null
+                              ? euro(price)
+                              : "Çmimi mungon"}
+                          </strong>
 
-                            <p className="mt-1 text-lg font-black tracking-[-0.03em]">
-                              {(
-                                price *
-                                item.quantity
-                              ).toFixed(
-                                2
-                              )}{" "}
-                              €
-                            </p>
-
-                          </div>
+                          {discounted && (
+                            <span className="text-xs text-neutral-500 line-through">
+                              {euro(oldPrice)}
+                            </span>
+                          )}
 
                         </div>
 
                       </div>
-                    );
-                  }
-                )}
+                    </div>
 
-              </div>
+                    {/* ================================= */}
+                    {/* QUANTITY / TOTAL */}
+                    {/* ================================= */}
+
+                    <div className="mt-4 flex items-end justify-between gap-4">
+
+                      <div>
+                        <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-neutral-500">
+                          SASIA
+                        </p>
+
+                        <div className="inline-flex h-10 overflow-hidden rounded-lg border border-white/15 bg-[#151515]">
+
+                          <button
+                            type="button"
+                            aria-label={`Zvogëlo sasinë e ${item.name || "produktit"}`}
+                            disabled={quantity <= 1}
+                            onClick={() =>
+                              updateQuantity(
+                                item.id,
+                                item.size,
+                                item.color,
+                                quantity - 1
+                              )
+                            }
+                            className="flex w-10 items-center justify-center transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-30"
+                          >
+                            <Minus size={15} />
+                          </button>
+
+                          <span className="flex min-w-11 items-center justify-center border-x border-white/15 px-2 text-xs font-black">
+                            {quantity}
+                          </span>
+
+                          <button
+                            type="button"
+                            aria-label={`Rrit sasinë e ${item.name || "produktit"}`}
+                            disabled={atMax}
+                            onClick={() =>
+                              updateQuantity(
+                                item.id,
+                                item.size,
+                                item.color,
+                                quantity + 1
+                              )
+                            }
+                            className="flex w-10 items-center justify-center transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-30"
+                          >
+                            <Plus size={15} />
+                          </button>
+
+                        </div>
+
+                        {stock !== null &&
+                          combinedQuantity >= stock && (
+                            <p className="mt-2 text-[10px] font-medium text-amber-400">
+                              Kufiri i stokut: {stock}
+                            </p>
+                          )}
+
+                      </div>
+
+                      {/* LINE TOTAL */}
+                      <div className="text-right">
+
+                        <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-neutral-500">
+                          TOTALI
+                        </p>
+
+                        <p className="text-xl font-black text-[#FF9C37]">
+                          {lineTotal !== null
+                            ? euro(lineTotal)
+                            : "—"}
+                        </p>
+
+                      </div>
+                    </div>
+
+                  </article>
+                );
+              })}
 
             </div>
 
             {/* ================================= */}
-            {/* BOTTOM SUMMARY */}
+            {/* ORDER SUMMARY */}
             {/* ================================= */}
 
-            <div className="flex-shrink-0 border-t border-neutral-200 bg-white px-5 pb-6 pt-5 shadow-[0_-15px_50px_rgba(0,0,0,0.05)] sm:px-6">
+            <div className="shrink-0 border-t border-white/10 bg-[#111111] px-5 pb-[max(20px,env(safe-area-inset-bottom))] pt-5 sm:px-6">
 
-              {/* ITEMS */}
-              <div className="flex items-center justify-between text-xs">
-
-                <span className="text-neutral-500">
-                  Produkte
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-neutral-400">
+                  Artikujt
                 </span>
 
                 <span className="font-bold">
-                  {cartCount}{" "}
-                  {cartCount ===
-                  1
-                    ? "artikull"
-                    : "artikuj"}
+                  {count}
                 </span>
-
               </div>
 
-              {/* SUBTOTAL */}
-              <div className="mt-4 flex items-end justify-between">
+              <div className="mt-4 flex items-end justify-between gap-4">
 
                 <div>
-
-                  <p className="text-[9px] font-black tracking-[0.2em] text-neutral-400">
-                    SUBTOTAL
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-neutral-500">
+                    NËNTOTALI
                   </p>
 
-                  <p className="mt-1 text-[10px] text-neutral-400">
-                    Pa transport
+                  <p className="mt-1 text-[11px] text-neutral-500">
+                    Pa dërgesë
                   </p>
-
                 </div>
 
-                <span className="text-[26px] font-black tracking-[-0.05em]">
-                  {cartTotal.toFixed(
-                    2
-                  )}{" "}
-                  €
-                </span>
+                <strong className="text-3xl font-black tracking-tight text-[#FF7900]">
+                  {euro(subtotal)}
+                </strong>
 
               </div>
 
-              {/* DELIVERY INFO */}
-              <div className="mt-5 border border-neutral-200 bg-[#f7f7f5] px-4 py-3">
+              {/* DELIVERY */}
+              <div className="mt-4 flex items-center gap-2 rounded-lg border border-white/10 bg-[#0A0A0A] px-3 py-3">
 
-                <div className="flex items-center gap-2">
+                <Truck
+                  size={17}
+                  className="shrink-0 text-[#FF7900]"
+                />
 
-                  <span className="h-1.5 w-1.5 rounded-full bg-green-600" />
-
-                  <p className="text-[9px] font-bold tracking-[0.12em]">
-                    DËRGESA DISPONIBLE
-                  </p>
-
-                </div>
-
-                <p className="mt-2 text-[9px] leading-5 text-neutral-500">
-                  Kosovë 2.50€ ·
-                  Shqipëri 5€ ·
-                  Maqedoni e Veriut
-                  5€
+                <p className="text-[11px] leading-5 text-neutral-400">
+                  Tarifa e dërgesës llogaritet në
+                  Checkout sipas shtetit.
                 </p>
 
               </div>
 
               {/* CHECKOUT */}
-              <Link
-                to="/checkout"
-                onClick={
-                  closeCart
-                }
-                style={{
-                  color:
-                    "#ffffff",
-                }}
-                className="group mt-5 flex min-h-[58px] w-full items-center justify-between bg-black px-6 text-xs font-black tracking-[0.12em] text-white transition hover:bg-neutral-800"
-              >
-                <span
-                  style={{
-                    color:
-                      "#ffffff",
-                  }}
+              {hasCartIssue ? (
+                <p
+                  role="alert"
+                  className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-xs leading-5 text-amber-300"
                 >
-                  VAZHDO NË
-                  CHECKOUT
-                </span>
+                  Kontrollo çmimet dhe stokun e
+                  produkteve para se të vazhdosh.
+                </p>
+              ) : (
+                <Link
+                  to="/checkout"
+                  onClick={closeCart}
+                  className="group mt-4 flex min-h-[56px] w-full items-center justify-between rounded-xl bg-[#FF7900] px-5 text-xs font-black uppercase tracking-wide text-black transition hover:bg-[#FFA33E]"
+                >
+                  VAZHDO NË CHECKOUT
 
-                <ArrowRight
-                  size={17}
-                  style={{
-                    color:
-                      "#ffffff",
-                  }}
-                  className="transition duration-300 group-hover:translate-x-1"
-                />
-              </Link>
+                  <ArrowRight
+                    size={19}
+                    className="transition group-hover:translate-x-1"
+                  />
+                </Link>
+              )}
 
               {/* FULL CART */}
               <Link
                 to="/cart"
-                onClick={
-                  closeCart
-                }
-                className="mt-2 flex min-h-[50px] w-full items-center justify-center border border-neutral-300 bg-white text-[10px] font-black tracking-[0.12em] text-black transition hover:border-black"
+                onClick={closeCart}
+                className="mt-3 flex min-h-[47px] w-full items-center justify-center rounded-xl border border-white/15 text-xs font-extrabold uppercase tracking-wide text-white transition hover:border-[#FF7900] hover:text-[#FF7900]"
               >
                 SHIKO SHPORTËN
               </Link>
 
-              {/* CONTINUE */}
+              {/* CONTINUE SHOPPING */}
               <button
                 type="button"
-                onClick={
-                  closeCart
-                }
-                className="mt-4 w-full text-center text-[10px] font-semibold tracking-[0.08em] text-neutral-400 transition hover:text-black"
+                onClick={closeCart}
+                className="mt-3 flex w-full items-center justify-center gap-2 py-2 text-xs font-semibold text-neutral-500 transition hover:text-white"
               >
-                VAZHDO SHOPPING
+                <ChevronLeft size={15} />
+                VAZHDO BLERJET
               </button>
 
             </div>

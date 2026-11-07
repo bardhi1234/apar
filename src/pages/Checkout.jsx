@@ -1,35 +1,44 @@
-import { useState } from "react";
+
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import {
+  AlertCircle,
   ArrowLeft,
+  ArrowRight,
   CheckCircle2,
+  CreditCard,
+  Loader2,
   MapPin,
   PackageCheck,
   ShieldCheck,
+  ShoppingBag,
   Truck,
+  UserRound,
 } from "lucide-react";
 
 import { FaWhatsapp } from "react-icons/fa";
 
 import Header from "../components/Header";
 import Footer from "../components/Footer";
+import { useCart } from "../context/CartContext";
+import { createOrder } from "../services/api";
 
-import {
-  useCart,
-} from "../context/CartContext";
+// ======================================
+// PROTEINFITNESS CHECKOUT
+// ======================================
 
-const WHATSAPP_NUMBER =
-  "38343977125";
+// Tarifat duhet te perputhen me
+// SHIPPING ne backend/orderController.js.
 
 const SHIPPING_FEES = {
-  Kosovë: 2.5,
-  Shqipëri: 5,
+  "Kosovë": 2.5,
+  "Shqipëri": 5,
   "Maqedoni e Veriut": 5,
 };
 
 const CITIES = {
-  Kosovë: [
+  "Kosovë": [
     "Prishtinë",
     "Prizren",
     "Pejë",
@@ -57,7 +66,7 @@ const CITIES = {
     "Obiliq",
   ],
 
-  Shqipëri: [
+  "Shqipëri": [
     "Tiranë",
     "Durrës",
     "Shkodër",
@@ -83,52 +92,280 @@ const CITIES = {
   ],
 };
 
+const WHATSAPP_NUMBER = "38343977125";
+
+const LOGO =
+  "https://res.cloudinary.com/dzyn3rfgk/image/upload/v1794083333/proteinfitness-logo.png_c2xpdv.png";
+
+const INITIAL_FORM = {
+  firstName: "",
+  lastName: "",
+  phone: "",
+  country: "Kosovë",
+  city: "",
+  address: "",
+  note: "",
+};
+
+const fieldClass =
+  "h-[54px] w-full rounded-xl border border-white/15 bg-[#0B0B0B] px-4 text-sm text-white outline-none placeholder:text-neutral-600 focus:border-[#FF7900]";
+
+// ======================================
+// HELPERS
+// ======================================
+
+function toNumber(value) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (value == null || value === "") {
+    return null;
+  }
+
+  const raw = String(value).replace(/[\s€]/g, "");
+
+  const normalized =
+    raw.includes(",") && raw.includes(".")
+      ? raw.lastIndexOf(",") > raw.lastIndexOf(".")
+        ? raw.replace(/\./g, "").replace(",", ".")
+        : raw.replace(/,/g, "")
+      : raw.replace(",", ".");
+
+  const number = Number(normalized);
+
+  return Number.isFinite(number) ? number : null;
+}
+
+function euro(value) {
+  return new Intl.NumberFormat("de-DE", {
+    style: "currency",
+    currency: "EUR",
+  }).format(Number(value) || 0);
+}
+
+function getImage(item) {
+  const image =
+    item.image ||
+    (Array.isArray(item.images)
+      ? item.images[0]
+      : null);
+
+  if (typeof image === "string") {
+    return image;
+  }
+
+  return (
+    image?.secure_url ||
+    image?.url ||
+    image?.image_url ||
+    ""
+  );
+}
+
+// ======================================
+// FORM FIELD COMPONENT
+// ======================================
+
+function Field({
+  label,
+  name,
+  value,
+  onChange,
+  error,
+  ...props
+}) {
+  return (
+    <label className="block min-w-0">
+      <span className="mb-2 block text-xs font-bold text-neutral-200">
+        {label}{" "}
+        <span className="text-[#FF7900]">*</span>
+      </span>
+
+      <input
+        name={name}
+        value={value}
+        onChange={onChange}
+        required
+        aria-invalid={Boolean(error)}
+        className={`${fieldClass} ${
+          error ? "border-red-500" : ""
+        }`}
+        {...props}
+      />
+
+      {error && (
+        <span className="mt-2 block text-xs text-red-400">
+          {error}
+        </span>
+      )}
+    </label>
+  );
+}
+
+// ======================================
+// SECTION HEADER
+// ======================================
+
+function SectionHeader({
+  icon: Icon,
+  step,
+  title,
+}) {
+  return (
+    <div className="flex items-center gap-4 border-b border-white/10 pb-6">
+      <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#FF7900]/10">
+        <Icon
+          size={23}
+          className="text-[#FF7900]"
+        />
+      </span>
+
+      <div>
+        <p className="text-[10px] font-extrabold uppercase tracking-[0.15em] text-[#FF7900]">
+          {step}
+        </p>
+
+        <h2 className="mt-1 text-xl font-black sm:text-2xl">
+          {title}
+        </h2>
+      </div>
+    </div>
+  );
+}
+
+// ======================================
+// WHATSAPP MESSAGE
+// ======================================
+
+function buildWhatsAppMessage(order) {
+  const lines = order.items.map((item, index) => {
+    const extras = [
+      item.size
+        ? `Pesha / Paketimi: ${item.size}`
+        : "",
+
+      item.color
+        ? `Shija / Varianti: ${item.color}`
+        : "",
+    ].filter(Boolean);
+
+    return `${index + 1}. ${item.name}
+${extras.length ? extras.join("\n") + "\n" : ""}Sasia: ${item.quantity}`;
+  });
+
+  return [
+    "Përshëndetje ProteinFitness!",
+
+    `Kam regjistruar porosinë ${order.orderNumber} në website.`,
+
+    "",
+
+    `Klienti: ${order.customer.firstName} ${order.customer.lastName}`,
+
+    `Telefoni: ${order.customer.phone}`,
+
+    `Adresa: ${order.customer.address}, ${order.customer.city}, ${order.customer.country}`,
+
+    "",
+
+    "PRODUKTET:",
+
+    lines.join("\n\n"),
+
+    "",
+
+    `Nëntotali: ${euro(order.subtotal)}`,
+
+    `Dërgesa: ${euro(order.shipping)}`,
+
+    `TOTALI: ${euro(order.total)}`,
+
+    "Pagesa: Në dorëzim",
+
+    ...(order.customer.note
+      ? ["", `Shënim: ${order.customer.note}`]
+      : []),
+
+    "",
+
+    "Ju lutem më konfirmoni porosinë.",
+  ].join("\n");
+}
+
+// ======================================
+// CHECKOUT COMPONENT
+// ======================================
+
 export default function Checkout() {
-  const {
-    cart,
-    cartTotal,
-    clearCart,
-  } = useCart();
+  const { cart = [], clearCart } = useCart();
 
-  const [form, setForm] =
-    useState({
-      firstName: "",
-      lastName: "",
-      phone: "",
-      country: "Kosovë",
-      city: "",
-      address: "",
-      note: "",
-    });
+  const [form, setForm] = useState(INITIAL_FORM);
 
-  const [errors, setErrors] =
-    useState({});
+  const [errors, setErrors] = useState({});
 
-  const [
-    completedOrder,
-    setCompletedOrder,
-  ] = useState(null);
+  const [serverError, setServerError] =
+    useState("");
 
-  const shipping =
-    cart.length > 0
-      ? SHIPPING_FEES[
-          form.country
-        ] || 0
-      : 0;
+  const [submitting, setSubmitting] =
+    useState(false);
 
-  const total =
-    cartTotal + shipping;
+  const [savedOrder, setSavedOrder] =
+    useState(null);
 
-  const currentCities =
-    CITIES[form.country] || [];
+  const submittingRef = useRef(false);
 
-  const handleChange = (
-    event
-  ) => {
-    const {
-      name,
-      value,
-    } = event.target;
+  const items = Array.isArray(cart) ? cart : [];
+
+  // ======================================
+  // ORDER CALCULATIONS
+  // ======================================
+
+  const subtotal = items.reduce((sum, item) => {
+    return (
+      sum +
+      (toNumber(item.price) || 0) *
+        (Number(item.quantity) || 0)
+    );
+  }, 0);
+
+  const shipping = items.length
+    ? SHIPPING_FEES[form.country] ?? 0
+    : 0;
+
+  const estimatedTotal = subtotal + shipping;
+
+  const count = items.reduce(
+    (sum, item) =>
+      sum + (Number(item.quantity) || 0),
+    0
+  );
+
+  const invalidCart = items.some((item) => {
+    const id = Number(
+      item.id ?? item.productId
+    );
+
+    const qty = Number(item.quantity);
+
+    return (
+      !Number.isSafeInteger(id) ||
+      id <= 0 ||
+      !Number.isSafeInteger(qty) ||
+      qty <= 0
+    );
+  });
+
+  useEffect(() => {
+    document.title = "Checkout | ProteinFitness";
+  }, []);
+
+  // ======================================
+  // HANDLE FORM CHANGES
+  // ======================================
+
+  function handleChange(event) {
+    const { name, value } = event.target;
 
     setForm((current) => ({
       ...current,
@@ -136,114 +373,98 @@ export default function Checkout() {
       [name]: value,
 
       ...(name === "country"
-        ? {
-            city: "",
-          }
+        ? { city: "" }
         : {}),
     }));
 
     setErrors((current) => ({
       ...current,
+
       [name]: "",
 
       ...(name === "country"
-        ? {
-            city: "",
-          }
+        ? { city: "" }
         : {}),
     }));
-  };
 
-  const validateForm = () => {
-    const newErrors = {};
+    setServerError("");
+  }
+
+  // ======================================
+  // FORM VALIDATION
+  // ======================================
+
+  function validate() {
+    const next = {};
+
+    if (!form.firstName.trim()) {
+      next.firstName = "Shkruaj emrin.";
+    }
+
+    if (!form.lastName.trim()) {
+      next.lastName = "Shkruaj mbiemrin.";
+    }
+
+    const phoneLength = form.phone
+      .replace(/\D/g, "")
+      .length;
 
     if (
-      !form.firstName.trim()
+      phoneLength < 8 ||
+      phoneLength > 15
     ) {
-      newErrors.firstName =
-        "Shkruaj emrin.";
-    }
-
-    if (
-      !form.lastName.trim()
-    ) {
-      newErrors.lastName =
-        "Shkruaj mbiemrin.";
-    }
-
-    if (!form.phone.trim()) {
-      newErrors.phone =
-        "Shkruaj numrin e telefonit.";
-    }
-
-    if (!form.country) {
-      newErrors.country =
-        "Zgjidh shtetin.";
-    }
-
-    if (!form.city) {
-      newErrors.city =
-        "Zgjidh qytetin.";
+      next.phone =
+        "Shkruaj një numër telefoni të vlefshëm.";
     }
 
     if (
-      !form.address.trim()
+      !Object.prototype.hasOwnProperty.call(
+        SHIPPING_FEES,
+        form.country
+      )
     ) {
-      newErrors.address =
-        "Shkruaj adresën.";
+      next.country = "Zgjidh shtetin.";
     }
 
-    setErrors(newErrors);
-
-    return (
-      Object.keys(
-        newErrors
-      ).length === 0
-    );
-  };
-
-  const saveOrderLocally = (
-    order
-  ) => {
-    try {
-      const saved =
-        localStorage.getItem(
-          "apar-orders"
-        );
-
-      const existing =
-        saved
-          ? JSON.parse(saved)
-          : [];
-
-      const orders =
-        Array.isArray(existing)
-          ? existing
-          : [];
-
-      localStorage.setItem(
-        "apar-orders",
-        JSON.stringify([
-          order,
-          ...orders,
-        ])
-      );
-    } catch {
-      localStorage.setItem(
-        "apar-orders",
-        JSON.stringify([
-          order,
-        ])
-      );
+    if (!form.city.trim()) {
+      next.city = "Shkruaj qytetin.";
     }
-  };
 
-  const handleSubmit = (
-    event
-  ) => {
+    if (form.address.trim().length < 5) {
+      next.address =
+        "Shkruaj adresën e plotë.";
+    }
+
+    setErrors(next);
+
+    return Object.keys(next).length === 0;
+  }
+
+  // ======================================
+  // REGISTER ORDER IN DATABASE
+  // ======================================
+
+  async function handleSubmit(event) {
     event.preventDefault();
 
-    if (!validateForm()) {
+    if (
+      submittingRef.current ||
+      savedOrder
+    ) {
+      return;
+    }
+
+    setServerError("");
+
+    if (!items.length || invalidCart) {
+      setServerError(
+        "Shporta ka produkte ose sasi të pavlefshme. Kontrollo shportën."
+      );
+
+      return;
+    }
+
+    if (!validate()) {
       window.scrollTo({
         top: 0,
         behavior: "smooth",
@@ -252,292 +473,222 @@ export default function Checkout() {
       return;
     }
 
-    const orderNumber =
-      `APAR-${Date.now()
-        .toString()
-        .slice(-7)}`;
+    submittingRef.current = true;
 
-    const order = {
-      id: orderNumber,
+    setSubmitting(true);
 
-      customer: {
-        ...form,
-      },
+    try {
+      // Backend merr ID, sasi dhe variantet.
+      // Çmimet dhe stoku verifikohen në Neon.
 
-      products: cart,
+      const orderItems = items.map((item) => ({
+        productId: Number(
+          item.id ?? item.productId
+        ),
 
-      subtotal: cartTotal,
+        quantity: Number(item.quantity),
 
-      shipping,
+        size: item.size || null,
 
-      total,
+        color: item.color || null,
+      }));
 
-      currency: "EUR",
+      const response = await createOrder({
+        firstName: form.firstName.trim(),
 
-      paymentMethod:
-        "Pagesë në dorëzim",
+        lastName: form.lastName.trim(),
 
-      status: "E re",
+        phone: form.phone.trim(),
 
-      createdAt:
-        new Date().toISOString(),
-    };
+        country: form.country,
 
-    saveOrderLocally(order);
+        city: form.city.trim(),
 
-    setCompletedOrder(
-      order
-    );
+        address: form.address.trim(),
 
-    clearCart();
+        note: form.note.trim(),
 
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth",
-    });
-  };
+        items: orderItems,
+      });
 
-  const getWhatsAppMessage = (
-    order
-  ) => {
-    const productText =
-      order.products
-        .map(
-          (
-            item,
-            index
-          ) => {
-            const size =
-              item.size
-                ? `\nMadhësia: ${item.size}`
-                : "";
+      if (
+        !response?.success ||
+        !response?.order?.orderNumber
+      ) {
+        throw new Error(
+          "Serveri nuk konfirmoi regjistrimin e porosisë."
+        );
+      }
 
-            const color =
-              item.color
-                ? `\nNgjyra: ${item.color}`
-                : "";
+      const result = response.order;
 
-            return `${index + 1}. ${item.name}${size}${color}
-Sasia: ${item.quantity}
-Çmimi: ${(
-              item.price *
-              item.quantity
-            ).toFixed(
-              2
-            )} €`;
-          }
-        )
-        .join("\n\n");
+      setSavedOrder({
+        orderNumber: result.orderNumber,
 
-    return `Përshëndetje APAR 👋
+        status: result.status,
 
-Dua të konfirmoj porosinë:
+        subtotal: Number(result.subtotal),
 
-POROSIA: ${order.id}
+        shipping: Number(result.shipping),
 
-KLIENTI
-${order.customer.firstName} ${order.customer.lastName}
-Tel: ${order.customer.phone}
+        total: Number(result.total),
 
-DËRGESA
-${order.customer.country}
-${order.customer.city}
-${order.customer.address}
+        customer: { ...form },
 
-PRODUKTET
+        items: items.map((item) => ({
+          name: item.name,
 
-${productText}
+          size: item.size,
 
-Nëntotali: ${order.subtotal.toFixed(
-      2
-    )} €
-Dërgesa: ${order.shipping.toFixed(
-      2
-    )} €
-TOTALI: ${order.total.toFixed(
-      2
-    )} €
+          color: item.color,
 
-Pagesa: Pagesë në dorëzim
+          quantity: Number(item.quantity),
+        })),
+      });
 
-${
-  order.customer.note
-    ? `Shënim: ${order.customer.note}`
-    : ""
-}`;
-  };
+      // Pastro shportën vetëm kur serveri
+      // konfirmon regjistrimin e porosisë.
 
-  const openWhatsApp = () => {
-    if (!completedOrder) {
-      return;
-    }
+      clearCart();
 
-    const message =
-      getWhatsAppMessage(
-        completedOrder
+      window.scrollTo({
+        top: 0,
+        behavior: "smooth",
+      });
+    } catch (error) {
+      setServerError(
+        error?.message ||
+          "Porosia nuk u regjistrua. Provo përsëri."
       );
 
-    const url =
+      window.scrollTo({
+        top: 0,
+        behavior: "smooth",
+      });
+    } finally {
+      submittingRef.current = false;
+
+      setSubmitting(false);
+    }
+  }
+
+  // ======================================
+  // SUCCESS - ORDER SAVED IN NEON
+  // ======================================
+
+  if (savedOrder) {
+    const whatsappUrl =
       `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(
-        message
+        buildWhatsAppMessage(savedOrder)
       )}`;
 
-    window.open(
-      url,
-      "_blank",
-      "noopener,noreferrer"
-    );
-  };
-
-  /*
-    ========================================
-    ORDER SUCCESS
-    ========================================
-  */
-
-  if (completedOrder) {
     return (
       <>
         <Header />
 
-        <main className="min-h-[720px] bg-[#f6f6f4]">
+        <main className="min-h-[75vh] bg-[#080808] px-5 py-16 text-white sm:py-24">
+          <div className="mx-auto max-w-[720px] text-center">
 
-          <section className="border-b border-neutral-200 bg-white">
-
-            <div className="mx-auto max-w-[900px] px-5 py-20 text-center sm:px-6 sm:py-24">
-
-              <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-black text-white">
-
-                <CheckCircle2
-                  size={36}
-                  strokeWidth={1.5}
-                />
-
-              </div>
-
-              <div className="mt-7 flex items-center justify-center">
-
-                <span className="h-[2px] w-7 bg-[#009246]" />
-
-                <span className="h-[2px] w-7 bg-neutral-300" />
-
-                <span className="h-[2px] w-7 bg-[#CE2B37]" />
-
-              </div>
-
-              <p className="mt-7 text-[9px] font-black tracking-[0.4em] text-neutral-400">
-                APAR ORDER CONFIRMED
-              </p>
-
-              <h1 className="mt-4 text-4xl font-black tracking-[-0.05em] sm:text-5xl md:text-6xl">
-                Faleminderit për
-                porosinë.
-              </h1>
-
-              <p className="mx-auto mt-5 max-w-xl text-sm leading-7 text-neutral-500">
-                Porosia është
-                regjistruar. Tani mund
-                ta dërgosh edhe në
-                WhatsApp për konfirmim
-                me APAR.
-              </p>
-
+            <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-2xl border border-green-500/30 bg-green-500/10">
+              <CheckCircle2
+                size={38}
+                className="text-green-400"
+              />
             </div>
 
-          </section>
+            <p className="mt-7 text-xs font-black uppercase tracking-[0.2em] text-[#FF7900]">
+              PROTEINFITNESS
+            </p>
 
-          <section className="mx-auto max-w-[760px] px-5 py-10 sm:px-6">
+            <h1 className="mt-3 text-3xl font-black uppercase sm:text-5xl">
+              POROSIA U{" "}
+              <span className="text-[#FF7900]">
+                REGJISTRUA.
+              </span>
+            </h1>
 
-            <div className="border border-neutral-200 bg-white p-6 sm:p-8">
+            <p className="mx-auto mt-5 max-w-lg text-sm leading-7 text-neutral-400">
+              Porosia u ruajt në sistem dhe është
+              në pritje të konfirmimit nga dyqani.
+              Nuk është ende e konfirmuar për dërgim.
+            </p>
 
-              <div className="flex items-center justify-between border-b border-neutral-200 pb-5">
+            {/* ORDER CONFIRMATION */}
+            <div className="mt-9 overflow-hidden rounded-2xl border border-white/10 bg-[#141414] text-left">
 
-                <span className="text-xs font-semibold text-neutral-500">
-                  Numri i porosisë
-                </span>
+              <div className="border-b border-white/10 p-6">
+                <p className="text-xs text-neutral-500">
+                  NUMRI I POROSISË
+                </p>
 
-                <span className="text-sm font-black">
-                  {
-                    completedOrder.id
-                  }
-                </span>
-
+                <p className="mt-2 break-all text-xl font-black text-[#FF7900]">
+                  {savedOrder.orderNumber}
+                </p>
               </div>
 
-              <div className="flex items-center justify-between border-b border-neutral-200 py-5">
-
-                <span className="text-xs font-semibold text-neutral-500">
+              <div className="flex justify-between gap-5 border-b border-white/10 px-6 py-5 text-sm">
+                <span className="text-neutral-400">
                   Destinacioni
                 </span>
 
-                <span className="text-right text-sm font-bold">
-                  {
-                    completedOrder
-                      .customer
-                      .country
-                  }
-                  {" · "}
-                  {
-                    completedOrder
-                      .customer.city
-                  }
-                </span>
-
+                <strong className="text-right">
+                  {savedOrder.customer.city},{" "}
+                  {savedOrder.customer.country}
+                </strong>
               </div>
 
-              <div className="flex items-center justify-between border-b border-neutral-200 py-5">
-
-                <span className="text-xs font-semibold text-neutral-500">
+              <div className="flex justify-between gap-5 border-b border-white/10 px-6 py-5 text-sm">
+                <span className="text-neutral-400">
                   Pagesa
                 </span>
 
-                <span className="text-sm font-bold">
-                  Pagesë në dorëzim
-                </span>
-
+                <strong>
+                  Në dorëzim
+                </strong>
               </div>
 
-              <div className="flex items-end justify-between pt-6">
-
-                <span className="text-sm font-bold">
+              <div className="flex justify-between gap-5 px-6 py-6">
+                <strong>
                   TOTALI
-                </span>
+                </strong>
 
-                <span className="text-3xl font-black tracking-[-0.04em]">
-                  {completedOrder.total.toFixed(
-                    2
-                  )}{" "}
-                  €
-                </span>
-
+                <strong className="text-2xl font-black text-[#FF7900]">
+                  {euro(savedOrder.total)}
+                </strong>
               </div>
 
             </div>
 
-            <button
-              type="button"
-              onClick={
-                openWhatsApp
-              }
-              className="mt-4 flex min-h-[60px] w-full items-center justify-center gap-3 bg-black px-6 text-sm font-black tracking-[0.08em] text-white transition hover:bg-neutral-800"
+            {/* OPTIONAL WHATSAPP */}
+            <a
+              href={whatsappUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-6 inline-flex min-h-[56px] w-full items-center justify-center gap-3 rounded-xl bg-[#FF7900] px-6 text-sm font-black text-black hover:bg-[#FFA33E]"
             >
-              <FaWhatsapp
-                size={20}
-              />
+              <FaWhatsapp size={23} />
 
-              DËRGO POROSINË NË
-              WHATSAPP
-            </button>
+              DËRGO NUMRIN E POROSISË NË WHATSAPP
+
+              <ArrowRight size={18} />
+            </a>
+
+            <p className="mt-3 text-xs leading-6 text-neutral-500">
+              Opsionale: porosia është regjistruar
+              tashmë. WhatsApp hap vetëm një mesazh
+              që duhet ta dërgosh vetë.
+            </p>
 
             <Link
               to="/shop"
-              className="mt-3 flex min-h-[54px] w-full items-center justify-center border border-neutral-300 bg-white text-xs font-black tracking-[0.12em] text-black transition hover:border-black"
+              className="mt-7 inline-flex items-center gap-2 text-sm font-bold text-neutral-300 hover:text-[#FF7900]"
             >
-              VAZHDO SHOPPING
+              KTHEHU NË DYQAN
+
+              <ArrowRight size={17} />
             </Link>
 
-          </section>
-
+          </div>
         </main>
 
         <Footer />
@@ -545,748 +696,549 @@ ${
     );
   }
 
-  /*
-    ========================================
-    EMPTY CART
-    ========================================
-  */
+  // ======================================
+  // EMPTY CART
+  // ======================================
 
-  if (cart.length === 0) {
+  if (items.length === 0) {
     return (
       <>
         <Header />
 
-        <main className="flex min-h-[650px] items-center justify-center bg-[#f6f6f4] px-5">
+        <main className="flex min-h-[65vh] items-center justify-center bg-[#080808] px-5 text-white">
+          <div className="max-w-md text-center">
 
-          <div className="max-w-lg text-center">
+            <ShoppingBag
+              size={50}
+              className="mx-auto text-[#FF7900]"
+            />
 
-            <p className="text-[9px] font-black tracking-[0.4em] text-neutral-400">
-              APAR CHECKOUT
-            </p>
-
-            <h1 className="mt-4 text-4xl font-black tracking-[-0.04em]">
-              Shporta është bosh.
+            <h1 className="mt-6 text-3xl font-black">
+              SHPORTA ËSHTË BOSH
             </h1>
 
-            <p className="mt-4 text-sm leading-7 text-neutral-500">
-              Shto produkte në
-              shportë para se të
-              vazhdosh me porosinë.
+            <p className="mt-4 text-sm leading-7 text-neutral-400">
+              Shto produktet e ProteinFitness
+              në shportë për të vazhduar.
             </p>
 
             <Link
               to="/shop"
-              style={{
-                color:
-                  "#ffffff",
-              }}
-              className="mt-8 inline-flex bg-black px-9 py-4 text-sm font-black tracking-[0.08em] text-white"
+              className="mt-7 inline-flex min-h-[52px] items-center gap-2 rounded-xl bg-[#FF7900] px-7 text-xs font-black text-black"
             >
-              SHKO NË SHOP
+              SHIKO PRODUKTET
+
+              <ArrowRight size={17} />
             </Link>
 
           </div>
-
         </main>
 
         <Footer />
       </>
     );
   }
+
+  // ======================================
+  // CHECKOUT FORM
+  // ======================================
 
   return (
     <>
       <Header />
 
-      <main className="bg-[#f5f5f3]">
+      <main className="min-h-screen bg-[#080808] text-white">
 
-        {/* ================================= */}
-        {/* HERO */}
-        {/* ================================= */}
+        {/* PAGE HEADER */}
+        <section className="border-b border-white/10 bg-[#101010]">
+          <div className="mx-auto max-w-[1450px] px-5 py-12 sm:px-7 lg:px-10 lg:py-16">
 
-        <section className="relative overflow-hidden bg-[#050505] text-white">
-
-          <div className="absolute inset-0">
-
-            <div className="absolute -left-40 top-0 h-[300px] w-[300px] rounded-full bg-[#009246]/[0.04] blur-[120px]" />
-
-            <div className="absolute -right-40 top-0 h-[300px] w-[300px] rounded-full bg-[#CE2B37]/[0.04] blur-[120px]" />
-
-          </div>
-
-          <div className="relative mx-auto max-w-[1500px] px-5 py-12 sm:px-6 lg:px-10 lg:py-16">
-
-            <Link
-              to="/cart"
-              className="inline-flex items-center gap-2 text-xs font-semibold text-neutral-500 transition hover:text-white"
-            >
-              <ArrowLeft
-                size={15}
-              />
-
-              KTHEHU NË SHPORTË
-            </Link>
-
-            <p className="mt-8 text-[9px] font-black tracking-[0.4em] text-neutral-500">
-              APAR / SECURE
-              CHECKOUT
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#FF7900]">
+              PROTEINFITNESS / CHECKOUT
             </p>
 
-            <h1 className="mt-4 text-4xl font-black tracking-[-0.05em] sm:text-5xl lg:text-6xl">
-              PËRFUNDO
-              POROSINË.
+            <h1 className="mt-4 text-4xl font-black uppercase tracking-tight sm:text-6xl">
+              PËRFUNDO{" "}
+              <span className="text-[#FF7900]">
+                POROSINË.
+              </span>
             </h1>
 
-            <div className="mt-6 flex">
-
-              <span className="h-[2px] w-10 bg-[#009246]" />
-
-              <span className="h-[2px] w-10 bg-white/70" />
-
-              <span className="h-[2px] w-10 bg-[#CE2B37]" />
-
-            </div>
+            <p className="mt-4 max-w-xl text-sm leading-7 text-neutral-400">
+              Plotëso të dhënat dhe regjistro
+              porosinë në sistem. Pagesa bëhet
+              në dorëzim.
+            </p>
 
           </div>
-
         </section>
 
-        {/* ================================= */}
-        {/* FORM */}
-        {/* ================================= */}
-
         <form
-          onSubmit={
-            handleSubmit
-          }
-          className="mx-auto grid max-w-[1500px] gap-8 px-5 py-10 sm:px-6 lg:grid-cols-[1fr_440px] lg:px-10 lg:py-14"
+          onSubmit={handleSubmit}
+          noValidate
+          className="mx-auto grid max-w-[1450px] gap-7 px-4 py-10 sm:px-7 lg:grid-cols-[minmax(0,1fr)_420px] lg:px-10 lg:py-14"
         >
 
-          {/* =============================== */}
-          {/* LEFT */}
-          {/* =============================== */}
+          {/* ================================= */}
+          {/* LEFT COLUMN */}
+          {/* ================================= */}
 
           <div className="space-y-6">
 
-            {/* CUSTOMER */}
-            <section className="border border-neutral-200 bg-white p-6 sm:p-8 lg:p-10">
+            {/* SERVER ERROR */}
+            {serverError && (
+              <div
+                role="alert"
+                className="flex gap-3 rounded-xl border border-red-500/30 bg-red-500/10 p-5 text-sm text-red-300"
+              >
+                <AlertCircle
+                  size={20}
+                  className="shrink-0"
+                />
 
-              <div className="border-b border-neutral-100 pb-6">
+                <p>{serverError}</p>
+              </div>
+            )}
 
-                <p className="text-[9px] font-black tracking-[0.3em] text-neutral-400">
-                  01 / CUSTOMER
-                </p>
+            {/* CUSTOMER DETAILS */}
+            <section className="rounded-2xl border border-white/10 bg-[#141414] p-5 sm:p-7">
 
-                <h2 className="mt-2 text-2xl font-black tracking-[-0.03em]">
-                  Të dhënat e
-                  porosisë
-                </h2>
+              <SectionHeader
+                icon={UserRound}
+                step="01 / KLIENTI"
+                title="TË DHËNAT E KLIENTIT"
+              />
+
+              <div className="mt-6 grid gap-5 sm:grid-cols-2">
+
+                <Field
+                  label="Emri"
+                  name="firstName"
+                  value={form.firstName}
+                  onChange={handleChange}
+                  error={errors.firstName}
+                  autoComplete="given-name"
+                  placeholder="Emri"
+                  maxLength={100}
+                />
+
+                <Field
+                  label="Mbiemri"
+                  name="lastName"
+                  value={form.lastName}
+                  onChange={handleChange}
+                  error={errors.lastName}
+                  autoComplete="family-name"
+                  placeholder="Mbiemri"
+                  maxLength={100}
+                />
+
+                <div className="sm:col-span-2">
+                  <Field
+                    label="Telefoni"
+                    name="phone"
+                    type="tel"
+                    value={form.phone}
+                    onChange={handleChange}
+                    error={errors.phone}
+                    autoComplete="tel"
+                    placeholder="+383 4X XXX XXX"
+                    maxLength={40}
+                  />
+                </div>
 
               </div>
+            </section>
 
-              <div className="mt-7 grid gap-5 md:grid-cols-2">
+            {/* SHIPPING DETAILS */}
+            <section className="rounded-2xl border border-white/10 bg-[#141414] p-5 sm:p-7">
 
-                {/* FIRST NAME */}
-                <div>
+              <SectionHeader
+                icon={MapPin}
+                step="02 / DËRGESA"
+                title="ADRESA E DËRGESËS"
+              />
 
-                  <label className="mb-2 block text-xs font-bold">
-                    Emri *
-                  </label>
-
-                  <input
-                    type="text"
-                    name="firstName"
-                    value={
-                      form.firstName
-                    }
-                    onChange={
-                      handleChange
-                    }
-                    placeholder="Emri"
-                    className={`w-full border bg-white px-4 py-4 text-sm outline-none transition ${
-                      errors.firstName
-                        ? "border-red-500"
-                        : "border-neutral-300 focus:border-black"
-                    }`}
-                  />
-
-                  {errors.firstName && (
-                    <p className="mt-2 text-xs text-red-600">
-                      {
-                        errors.firstName
-                      }
-                    </p>
-                  )}
-
-                </div>
-
-                {/* LAST NAME */}
-                <div>
-
-                  <label className="mb-2 block text-xs font-bold">
-                    Mbiemri *
-                  </label>
-
-                  <input
-                    type="text"
-                    name="lastName"
-                    value={
-                      form.lastName
-                    }
-                    onChange={
-                      handleChange
-                    }
-                    placeholder="Mbiemri"
-                    className={`w-full border bg-white px-4 py-4 text-sm outline-none transition ${
-                      errors.lastName
-                        ? "border-red-500"
-                        : "border-neutral-300 focus:border-black"
-                    }`}
-                  />
-
-                  {errors.lastName && (
-                    <p className="mt-2 text-xs text-red-600">
-                      {
-                        errors.lastName
-                      }
-                    </p>
-                  )}
-
-                </div>
-
-                {/* PHONE */}
-                <div>
-
-                  <label className="mb-2 block text-xs font-bold">
-                    Telefoni *
-                  </label>
-
-                  <input
-                    type="tel"
-                    name="phone"
-                    value={
-                      form.phone
-                    }
-                    onChange={
-                      handleChange
-                    }
-                    placeholder="+383 / +355 / +389"
-                    className={`w-full border bg-white px-4 py-4 text-sm outline-none transition ${
-                      errors.phone
-                        ? "border-red-500"
-                        : "border-neutral-300 focus:border-black"
-                    }`}
-                  />
-
-                  {errors.phone && (
-                    <p className="mt-2 text-xs text-red-600">
-                      {
-                        errors.phone
-                      }
-                    </p>
-                  )}
-
-                </div>
+              <div className="mt-6 grid gap-5 sm:grid-cols-2">
 
                 {/* COUNTRY */}
-                <div>
-
-                  <label className="mb-2 block text-xs font-bold">
+                <label className="block">
+                  <span className="mb-2 block text-xs font-bold">
                     Shteti *
-                  </label>
+                  </span>
 
                   <select
                     name="country"
-                    value={
-                      form.country
-                    }
-                    onChange={
-                      handleChange
-                    }
-                    className={`w-full border bg-white px-4 py-4 text-sm outline-none ${
-                      errors.country
-                        ? "border-red-500"
-                        : "border-neutral-300 focus:border-black"
-                    }`}
+                    value={form.country}
+                    onChange={handleChange}
+                    className={fieldClass}
                   >
                     {Object.keys(
                       SHIPPING_FEES
-                    ).map(
-                      (
-                        country
-                      ) => (
-                        <option
-                          key={
-                            country
-                          }
-                          value={
-                            country
-                          }
-                        >
-                          {
-                            country
-                          }
-                        </option>
-                      )
-                    )}
+                    ).map((country) => (
+                      <option
+                        key={country}
+                        value={country}
+                      >
+                        {country}
+                      </option>
+                    ))}
                   </select>
 
-                </div>
+                  {errors.country && (
+                    <span className="mt-2 block text-xs text-red-400">
+                      {errors.country}
+                    </span>
+                  )}
+                </label>
 
                 {/* CITY */}
-                <div>
-
-                  <label className="mb-2 block text-xs font-bold">
+                <label className="block">
+                  <span className="mb-2 block text-xs font-bold">
                     Qyteti *
-                  </label>
+                  </span>
 
-                  <select
+                  <input
                     name="city"
-                    value={
-                      form.city
-                    }
-                    onChange={
-                      handleChange
-                    }
-                    className={`w-full border bg-white px-4 py-4 text-sm outline-none ${
+                    list="checkout-city-options"
+                    value={form.city}
+                    onChange={handleChange}
+                    placeholder="Shkruaj qytetin"
+                    autoComplete="address-level2"
+                    maxLength={120}
+                    className={`${fieldClass} ${
                       errors.city
                         ? "border-red-500"
-                        : "border-neutral-300 focus:border-black"
+                        : ""
                     }`}
-                  >
-                    <option value="">
-                      Zgjidh qytetin
-                    </option>
+                  />
 
-                    {currentCities.map(
-                      (
-                        city
-                      ) => (
+                  <datalist id="checkout-city-options">
+                    {(CITIES[form.country] || []).map(
+                      (city) => (
                         <option
-                          key={
-                            city
-                          }
-                          value={
-                            city
-                          }
-                        >
-                          {
-                            city
-                          }
-                        </option>
+                          key={city}
+                          value={city}
+                        />
                       )
                     )}
-                  </select>
+                  </datalist>
 
                   {errors.city && (
-                    <p className="mt-2 text-xs text-red-600">
-                      {
-                        errors.city
-                      }
-                    </p>
+                    <span className="mt-2 block text-xs text-red-400">
+                      {errors.city}
+                    </span>
                   )}
+                </label>
 
-                </div>
-
-                {/* SHIPPING PREVIEW */}
-                <div>
-
-                  <label className="mb-2 block text-xs font-bold">
-                    Tarifa e dërgesës
-                  </label>
-
-                  <div className="flex min-h-[52px] items-center justify-between border border-neutral-200 bg-[#f7f7f5] px-4">
-
-                    <span className="text-xs text-neutral-500">
-                      {
-                        form.country
-                      }
-                    </span>
-
-                    <span className="text-sm font-black">
-                      {shipping.toFixed(
-                        2
-                      )}{" "}
-                      €
-                    </span>
-
-                  </div>
-
+                {/* ADDRESS */}
+                <div className="sm:col-span-2">
+                  <Field
+                    label="Adresa e plotë"
+                    name="address"
+                    value={form.address}
+                    onChange={handleChange}
+                    error={errors.address}
+                    autoComplete="street-address"
+                    placeholder="Rruga, numri, lagjja..."
+                    maxLength={250}
+                  />
                 </div>
 
               </div>
 
-              {/* ADDRESS */}
-              <div className="mt-5">
+              {/* SHIPPING PRICE */}
+              <div className="mt-5 flex items-center justify-between rounded-xl border border-[#FF7900]/20 bg-[#FF7900]/5 p-4">
 
-                <label className="mb-2 block text-xs font-bold">
-                  Adresa e plotë *
-                </label>
+                <span className="flex items-center gap-3 text-sm text-neutral-300">
+                  <Truck
+                    size={20}
+                    className="text-[#FF7900]"
+                  />
 
-                <input
-                  type="text"
-                  name="address"
-                  value={
-                    form.address
-                  }
-                  onChange={
-                    handleChange
-                  }
-                  placeholder="Rruga, numri, lagjja..."
-                  className={`w-full border bg-white px-4 py-4 text-sm outline-none transition ${
-                    errors.address
-                      ? "border-red-500"
-                      : "border-neutral-300 focus:border-black"
-                  }`}
-                />
+                  Tarifa e dërgesës
+                </span>
 
-                {errors.address && (
-                  <p className="mt-2 text-xs text-red-600">
-                    {
-                      errors.address
-                    }
-                  </p>
-                )}
+                <strong className="text-lg text-[#FF7900]">
+                  {euro(shipping)}
+                </strong>
 
               </div>
 
-              {/* NOTE */}
-              <div className="mt-5">
-
-                <label className="mb-2 block text-xs font-bold">
-                  Shënim
-                </label>
+              {/* ADDITIONAL NOTE */}
+              <label className="mt-6 block">
+                <span className="mb-2 block text-xs font-bold">
+                  Shënim shtesë (opsional)
+                </span>
 
                 <textarea
                   name="note"
-                  value={
-                    form.note
-                  }
-                  onChange={
-                    handleChange
-                  }
-                  placeholder="Informacione shtesë për porosinë..."
+                  value={form.note}
+                  onChange={handleChange}
+                  maxLength={500}
                   rows={4}
-                  className="w-full resize-none border border-neutral-300 bg-white px-4 py-4 text-sm outline-none transition focus:border-black"
+                  placeholder="Informacione shtesë për dorëzimin..."
+                  className="w-full resize-y rounded-xl border border-white/15 bg-[#0B0B0B] px-4 py-3 text-sm text-white outline-none placeholder:text-neutral-600 focus:border-[#FF7900]"
                 />
-
-              </div>
+              </label>
 
             </section>
 
-            {/* PAYMENT */}
-            <section className="border border-neutral-200 bg-white p-6 sm:p-8">
+            {/* PAYMENT METHOD */}
+            <section className="rounded-2xl border border-white/10 bg-[#141414] p-5 sm:p-7">
 
-              <p className="text-[9px] font-black tracking-[0.3em] text-neutral-400">
-                02 / PAYMENT
-              </p>
+              <SectionHeader
+                icon={CreditCard}
+                step="03 / PAGESA"
+                title="MËNYRA E PAGESËS"
+              />
 
-              <h2 className="mt-2 text-2xl font-black tracking-[-0.03em]">
-                Pagesa
-              </h2>
+              <div className="mt-6 flex items-center gap-4 rounded-xl border-2 border-[#FF7900] bg-[#FF7900]/5 p-5">
 
-              <div className="mt-6 flex items-center gap-4 border-2 border-black p-5">
-
-                <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center bg-black text-white">
-
-                  <PackageCheck
-                    size={21}
-                  />
-
-                </div>
+                <PackageCheck
+                  size={26}
+                  className="shrink-0 text-[#FF7900]"
+                />
 
                 <div>
-
                   <p className="text-sm font-bold">
-                    Pagesë në
-                    dorëzim
+                    Pagesë në dorëzim
                   </p>
 
-                  <p className="mt-1 text-xs leading-5 text-neutral-500">
-                    Paguaj kur të
-                    pranosh porosinë.
+                  <p className="mt-2 text-xs leading-6 text-neutral-400">
+                    Porosia regjistrohet tani,
+                    pagesa kryhet gjatë dorëzimit.
                   </p>
-
                 </div>
-
-                <div className="ml-auto h-4 w-4 rounded-full border-[4px] border-black" />
 
               </div>
 
             </section>
 
-            {/* TRUST */}
-            <div className="grid gap-3 sm:grid-cols-3">
+            {/* BACK TO CART */}
+            <div className="flex flex-wrap items-center justify-between gap-4">
 
-              <div className="border border-neutral-200 bg-white p-5">
+              <Link
+                to="/cart"
+                className="inline-flex items-center gap-2 text-xs font-bold text-neutral-400 hover:text-[#FF7900]"
+              >
+                <ArrowLeft size={17} />
 
-                <Truck
-                  size={20}
-                />
+                KTHEHU NË SHPORTË
+              </Link>
 
-                <p className="mt-4 text-xs font-bold">
-                  3 SHTETE
-                </p>
-
-                <p className="mt-1 text-[10px] leading-5 text-neutral-500">
-                  Kosovë, Shqipëri,
-                  Maqedoni e Veriut
-                </p>
-
-              </div>
-
-              <div className="border border-neutral-200 bg-white p-5">
-
+              <span className="inline-flex items-center gap-2 text-xs text-neutral-500">
                 <ShieldCheck
-                  size={20}
+                  size={17}
+                  className="text-[#FF7900]"
                 />
 
-                <p className="mt-4 text-xs font-bold">
-                  SECURE ORDER
-                </p>
-
-                <p className="mt-1 text-[10px] leading-5 text-neutral-500">
-                  Të dhënat përdoren
-                  për porosinë.
-                </p>
-
-              </div>
-
-              <div className="border border-neutral-200 bg-white p-5">
-
-                <MapPin
-                  size={20}
-                />
-
-                <p className="mt-4 text-xs font-bold">
-                  DELIVERY
-                </p>
-
-                <p className="mt-1 text-[10px] leading-5 text-neutral-500">
-                  Dërgesë direkt në
-                  adresën tënde.
-                </p>
-
-              </div>
-
-            </div>
-
-          </div>
-
-          {/* =============================== */}
-          {/* ORDER SUMMARY */}
-          {/* =============================== */}
-
-          <aside className="h-fit border border-neutral-200 bg-white p-6 lg:sticky lg:top-24 lg:p-7">
-
-            <div className="flex items-end justify-between border-b border-neutral-200 pb-5">
-
-              <div>
-
-                <p className="text-[9px] font-black tracking-[0.3em] text-neutral-400">
-                  APAR ORDER
-                </p>
-
-                <h2 className="mt-2 text-2xl font-black tracking-[-0.03em]">
-                  Porosia juaj
-                </h2>
-
-              </div>
-
-              <span className="text-xs font-bold text-neutral-400">
-                {cart.reduce(
-                  (
-                    total,
-                    item
-                  ) =>
-                    total +
-                    item.quantity,
-                  0
-                )}
-                {" "}
-                PCS
+                Çmimet dhe stoku verifikohen nga serveri.
               </span>
 
             </div>
 
-            {/* PRODUCTS */}
-            <div className="divide-y divide-neutral-100">
+          </div>
 
-              {cart.map(
-                (
-                  item,
-                  index
-                ) => (
+          {/* ================================= */}
+          {/* RIGHT COLUMN */}
+          {/* ================================= */}
+
+          <aside className="h-fit overflow-hidden rounded-2xl border border-white/10 bg-[#141414] lg:sticky lg:top-24">
+
+            {/* ORDER HEADER */}
+            <div className="border-b border-white/10 bg-[#1A1A1A] px-6 py-6">
+
+              <p className="text-[10px] font-bold uppercase tracking-wider text-[#FF7900]">
+                PROTEINFITNESS
+              </p>
+
+              <h2 className="mt-2 text-2xl font-black">
+                POROSIA JOTE
+              </h2>
+
+              <p className="mt-2 text-xs text-neutral-500">
+                {count} artikuj
+              </p>
+
+            </div>
+
+            {/* CART ITEMS */}
+            <div className="max-h-[390px] divide-y divide-white/10 overflow-y-auto px-5">
+
+              {items.map((item, index) => {
+                const image = getImage(item);
+
+                const quantity =
+                  Number(item.quantity) || 0;
+
+                return (
                   <div
-                    key={`${item.id}-${item.size || "no-size"}-${item.color || "no-color"}-${index}`}
-                    className="flex gap-4 py-5"
+                    key={`${item.id}-${item.size || ""}-${item.color || ""}-${index}`}
+                    className="flex gap-3 py-5"
                   >
 
-                    <div className="relative h-24 w-20 flex-shrink-0 overflow-hidden bg-neutral-100">
+                    <div className="flex h-20 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-white/10 bg-[#222222]">
 
-                      <img
-                        src={
-                          item.image
-                        }
-                        alt={
-                          item.name
-                        }
-                        className="h-full w-full object-cover"
-                      />
-
-                      <span className="absolute right-1 top-1 flex h-5 min-w-5 items-center justify-center bg-black px-1 text-[9px] font-black text-white">
-                        {
-                          item.quantity
-                        }
-                      </span>
+                      {image ? (
+                        <img
+                          src={image}
+                          alt={item.name}
+                          className="h-full w-full object-contain p-1"
+                        />
+                      ) : (
+                        <ShoppingBag
+                          size={23}
+                          className="text-neutral-600"
+                        />
+                      )}
 
                     </div>
 
                     <div className="min-w-0 flex-1">
 
-                      <p className="text-xs font-black leading-5">
-                        {
-                          item.name
-                        }
+                      <p className="text-sm font-bold">
+                        {item.name}
                       </p>
 
-                      <div className="mt-2 space-y-1 text-[10px] text-neutral-500">
+                      {item.size && (
+                        <p className="mt-1 text-xs text-neutral-500">
+                          Pesha: {item.size}
+                        </p>
+                      )}
 
-                        {item.size && (
-                          <p>
-                            SIZE:{" "}
-                            <span className="font-bold text-black">
-                              {
-                                item.size
-                              }
-                            </span>
-                          </p>
-                        )}
+                      {item.color && (
+                        <p className="mt-1 text-xs text-neutral-500">
+                          Shija: {item.color}
+                        </p>
+                      )}
 
-                        {item.color && (
-                          <p>
-                            COLOR:{" "}
-                            <span className="font-bold text-black">
-                              {
-                                item.color
-                              }
-                            </span>
-                          </p>
-                        )}
-
-                      </div>
+                      <p className="mt-1 text-xs text-neutral-500">
+                        Sasia: {quantity}
+                      </p>
 
                     </div>
 
-                    <p className="whitespace-nowrap text-xs font-black">
-                      {(
-                        item.price *
-                        item.quantity
-                      ).toFixed(
-                        2
-                      )}{" "}
-                      €
-                    </p>
+                    <strong className="shrink-0 text-sm">
+                      {euro(
+                        (toNumber(item.price) || 0) *
+                          quantity
+                      )}
+                    </strong>
 
                   </div>
-                )
+                );
+              })}
+
+            </div>
+
+            {/* ORDER TOTALS */}
+            <div className="border-t border-white/10 px-6 py-6">
+
+              <div className="flex justify-between text-sm text-neutral-400">
+                <span>Nëntotali</span>
+
+                <strong className="text-white">
+                  {euro(subtotal)}
+                </strong>
+              </div>
+
+              <div className="mt-4 flex justify-between text-sm text-neutral-400">
+                <span>
+                  Dërgesa ({form.country})
+                </span>
+
+                <strong className="text-white">
+                  {euro(shipping)}
+                </strong>
+              </div>
+
+              <div className="mt-6 flex items-center justify-between border-t border-white/10 pt-6">
+
+                <span className="font-black">
+                  TOTALI I PARASHIKUAR
+                </span>
+
+                <strong className="text-2xl font-black text-[#FF7900]">
+                  {euro(estimatedTotal)}
+                </strong>
+
+              </div>
+
+              {/* CART ERROR */}
+              {invalidCart && (
+                <p
+                  role="alert"
+                  className="mt-4 text-xs leading-5 text-red-400"
+                >
+                  Ka produkte me ID ose sasi
+                  të pavlefshme. Kontrollo shportën.
+                </p>
               )}
 
-            </div>
+              {/* SUBMIT ORDER */}
+              <button
+                type="submit"
+                disabled={
+                  submitting || invalidCart
+                }
+                className="mt-7 flex min-h-[58px] w-full items-center justify-center gap-3 rounded-xl bg-[#FF7900] px-5 text-xs font-black text-black transition hover:bg-[#FFA33E] disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400"
+              >
+                {submitting ? (
+                  <>
+                    <Loader2
+                      size={19}
+                      className="animate-spin"
+                    />
 
-            {/* TOTALS */}
-            <div className="border-t border-neutral-200 pt-5">
+                    DUKE REGJISTRUAR...
+                  </>
+                ) : (
+                  <>
+                    REGJISTRO POROSINË
 
-              <div className="flex items-center justify-between text-xs">
+                    <ArrowRight size={19} />
+                  </>
+                )}
+              </button>
 
-                <span className="text-neutral-500">
-                  Nëntotali
-                </span>
-
-                <span className="font-bold">
-                  {cartTotal.toFixed(
-                    2
-                  )}{" "}
-                  €
-                </span>
-
-              </div>
-
-              <div className="mt-4 flex items-center justify-between text-xs">
-
-                <span className="text-neutral-500">
-                  Dërgesa
-                </span>
-
-                <div className="text-right">
-
-                  <span className="font-bold">
-                    {shipping.toFixed(
-                      2
-                    )}{" "}
-                    €
-                  </span>
-
-                  <p className="mt-1 text-[9px] text-neutral-400">
-                    {
-                      form.country
-                    }
-                  </p>
-
-                </div>
-
-              </div>
+              <p className="mt-4 text-center text-[11px] leading-6 text-neutral-500">
+                Me klikimin e butonit, porosia
+                ruhet në sistem dhe mbetet
+                në pritje të konfirmimit.
+                Totali përfundimtar merret nga serveri.
+              </p>
 
             </div>
 
-            {/* TOTAL */}
-            <div className="mt-6 flex items-end justify-between border-t border-neutral-200 pt-6">
-
-              <div>
-
-                <span className="text-sm font-black">
-                  TOTALI
-                </span>
-
-                <p className="mt-1 text-[9px] text-neutral-400">
-                  EUR · VAT / DELIVERY
-                </p>
-
-              </div>
-
-              <span className="text-3xl font-black tracking-[-0.04em]">
-                {total.toFixed(
-                  2
-                )}{" "}
-                €
-              </span>
-
-            </div>
-
-            {/* SUBMIT */}
-            <button
-              type="submit"
-              className="group mt-7 flex min-h-[60px] w-full items-center justify-between bg-black px-6 text-sm font-black tracking-[0.08em] text-white transition hover:bg-neutral-800"
-            >
-              <span>
-                KONFIRMO POROSINË
-              </span>
-
-              <ArrowLeft
-                size={17}
-                className="rotate-180 transition group-hover:translate-x-1"
-              />
-            </button>
-
-            <p className="mt-4 text-center text-[10px] leading-5 text-neutral-400">
-              Nuk kërkohet account.
-              Pagesa bëhet në
-              dorëzim.
-            </p>
+            <div className="h-[3px] bg-gradient-to-r from-[#FF7900] via-[#FFB15E] to-[#FF7900]" />
 
           </aside>
 
         </form>
+
+        {/* FOOTER BRAND */}
+        <div className="border-t border-white/10 bg-[#0D0D0D]">
+          <div className="mx-auto flex max-w-[1450px] items-center gap-4 px-5 py-7 sm:px-7 lg:px-10">
+
+            <img
+              src={LOGO}
+              alt="ProteinFitness"
+              className="h-14 w-20 object-contain"
+            />
+
+            <div>
+              <p className="text-xs font-black">
+                PROTEINFITNESS
+              </p>
+
+              <p className="mt-1 text-xs text-neutral-500">
+                Sports Supplements Store
+              </p>
+            </div>
+
+          </div>
+        </div>
 
       </main>
 

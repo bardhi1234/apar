@@ -1,31 +1,126 @@
+
+import { useEffect } from "react";
+import { Link } from "react-router-dom";
+
 import {
+  ArrowLeft,
   ArrowRight,
+  BadgePercent,
+  ChevronRight,
+  CreditCard,
+  ImageOff,
   Minus,
+  PackageCheck,
   Plus,
+  ShieldCheck,
   ShoppingBag,
   Trash2,
   Truck,
-  ShieldCheck,
-  PackageCheck,
 } from "lucide-react";
-
-import {
-  Link,
-} from "react-router-dom";
 
 import Header from "../components/Header";
 import Footer from "../components/Footer";
+import { useCart } from "../context/CartContext";
 
-import {
-  useCart,
-} from "../context/CartContext";
+// ======================================
+// PROTEINFITNESS CONFIGURATION
+// ======================================
 
-const APAR_LOGO =
-  "https://res.cloudinary.com/dmlszpk5l/image/upload/v1790361997/ChatGPT_Image_Sep_25_2026_08_43_05_PM_aqnxkj.png";
+const LOGO =
+  "https://res.cloudinary.com/dzyn3rfgk/image/upload/v1794083333/proteinfitness-logo.png_c2xpdv.png";
+
+// ======================================
+// PRICE HELPERS
+// ======================================
+
+function toPrice(value) {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
+    return null;
+  }
+
+  if (typeof value === "number") {
+    return Number.isFinite(value) && value >= 0
+      ? value
+      : null;
+  }
+
+  const raw = String(value)
+    .trim()
+    .replace(/[\s€]/g, "");
+
+  const normalized =
+    raw.includes(",") && raw.includes(".")
+      ? raw.lastIndexOf(",") > raw.lastIndexOf(".")
+        ? raw.replace(/\./g, "").replace(",", ".")
+        : raw.replace(/,/g, "")
+      : raw.replace(",", ".");
+
+  const number = Number(normalized);
+
+  return Number.isFinite(number) && number >= 0
+    ? number
+    : null;
+}
+
+function euro(value) {
+  return new Intl.NumberFormat("de-DE", {
+    style: "currency",
+    currency: "EUR",
+  }).format(value);
+}
+
+// ======================================
+// IMAGE HELPERS
+// ======================================
+
+function imageUrl(image) {
+  if (typeof image === "string") {
+    return image;
+  }
+
+  if (image && typeof image === "object") {
+    return (
+      image.secure_url ||
+      image.url ||
+      image.image_url ||
+      ""
+    );
+  }
+
+  return "";
+}
+
+function getProductImage(item) {
+  const firstImage = Array.isArray(item.images)
+    ? item.images[0]
+    : null;
+
+  return (
+    imageUrl(item.image) ||
+    imageUrl(firstImage) ||
+    ""
+  );
+}
+
+function getCategoryName(category) {
+  if (typeof category === "string") {
+    return category;
+  }
+
+  return category?.name || "Suplemente";
+}
+
+// ======================================
+// CART COMPONENT
+// ======================================
 
 export default function Cart() {
   const {
-    cart,
+    cart = [],
     cartCount,
     cartTotal,
     removeFromCart,
@@ -33,739 +128,803 @@ export default function Cart() {
     clearCart,
   } = useCart();
 
-  const getNumber = (
-    value
-  ) => {
-    if (
-      typeof value === "number" &&
-      Number.isFinite(value)
-    ) {
-      return value;
-    }
+  useEffect(() => {
+    document.title = "Shporta | ProteinFitness";
+  }, []);
 
-    const parsed = Number(
-      String(value || "")
-        .replace(",", ".")
-        .replace(
-          /[^0-9.-]/g,
-          ""
-        )
-    );
+  const items = Array.isArray(cart) ? cart : [];
 
-    return Number.isFinite(parsed)
-      ? parsed
-      : 0;
-  };
+  // ======================================
+  // CALCULATE CART
+  // ======================================
 
-  const getMaxStock = (
-    item
-  ) => {
-    const stock =
-      Number(item.stock);
-
-    if (
-      Number.isFinite(stock)
-    ) {
-      return Math.max(
-        0,
-        stock
+  const totalItems = Number.isFinite(
+    Number(cartCount)
+  )
+    ? Number(cartCount)
+    : items.reduce(
+        (sum, item) =>
+          sum + (Number(item.quantity) || 1),
+        0
       );
+
+  const calculatedTotal = items.reduce(
+    (sum, item) => {
+      const price = toPrice(item.price);
+      const quantity =
+        Number(item.quantity) || 1;
+
+      return sum + (price || 0) * quantity;
+    },
+    0
+  );
+
+  const subtotal =
+    toPrice(cartTotal) ?? calculatedTotal;
+
+  const hasInvalidPrice = items.some(
+    (item) => toPrice(item.price) === null
+  );
+
+  const getStock = (item) => {
+    if (
+      item.stock === null ||
+      item.stock === undefined ||
+      item.stock === ""
+    ) {
+      return null;
     }
 
-    return 99;
+    const stock = Number(item.stock);
+
+    return Number.isFinite(stock)
+      ? Math.max(0, Math.floor(stock))
+      : null;
   };
+
+  const hasStockIssue = items.some((item) => {
+    const stock = getStock(item);
+
+    return (
+      stock !== null &&
+      Number(item.quantity) > stock
+    );
+  });
+
+  const canCheckout =
+    items.length > 0 &&
+    !hasInvalidPrice &&
+    !hasStockIssue;
+
+  // ======================================
+  // RENDER
+  // ======================================
 
   return (
     <>
       <Header />
 
-      <main className="min-h-[700px] bg-[#f6f6f4]">
+      <main className="min-h-screen bg-[#080808] text-white">
 
         {/* ================================= */}
-        {/* HERO */}
+        {/* CART HERO */}
         {/* ================================= */}
 
-        <section className="relative overflow-hidden bg-[#050505] text-white">
+        <section className="relative isolate overflow-hidden border-b border-white/10 bg-[#090909]">
 
-          <div className="pointer-events-none absolute inset-0">
+          {/* BACKGROUND EFFECTS */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 overflow-hidden"
+          >
+            <div className="absolute -left-36 top-0 h-[420px] w-[420px] rounded-full bg-[#FF7900]/[0.06] blur-[130px]" />
 
-            <div className="absolute -left-32 top-0 h-[300px] w-[300px] rounded-full bg-[#009246]/[0.04] blur-[120px]" />
-
-            <div className="absolute -right-32 top-0 h-[300px] w-[300px] rounded-full bg-[#CE2B37]/[0.04] blur-[120px]" />
-
+            <div className="absolute -right-32 bottom-0 h-[350px] w-[350px] rounded-full bg-[#FF7900]/[0.04] blur-[130px]" />
           </div>
 
-          <div className="relative mx-auto max-w-[1500px] px-5 py-14 sm:px-6 lg:px-10 lg:py-20">
+          <div className="relative mx-auto max-w-[1500px] px-5 py-12 sm:px-6 sm:py-16 lg:px-10 lg:py-20">
+
+            {/* BREADCRUMB */}
+            <nav
+              aria-label="Navigimi"
+              className="mb-9 flex items-center gap-2 text-xs"
+            >
+              <Link
+                to="/"
+                className="text-neutral-500 transition hover:text-[#FF7900]"
+              >
+                Ballina
+              </Link>
+
+              <ChevronRight
+                size={14}
+                className="text-[#FF7900]"
+              />
+
+              <Link
+                to="/shop"
+                className="text-neutral-500 transition hover:text-[#FF7900]"
+              >
+                Produktet
+              </Link>
+
+              <ChevronRight
+                size={14}
+                className="text-[#FF7900]"
+              />
+
+              <span className="font-bold text-white">
+                Shporta
+              </span>
+            </nav>
 
             <div className="flex flex-col justify-between gap-8 sm:flex-row sm:items-end">
 
               <div>
+                {/* BRAND LABEL */}
+                <div className="flex items-center gap-3">
 
-                <img
-                  src={APAR_LOGO}
-                  alt="APAR"
-                  className="w-[105px] object-contain mix-blend-screen opacity-80"
-                />
+                  <span className="h-[2px] w-9 bg-[#FF7900]" />
 
-                <p className="mt-6 text-[9px] font-black tracking-[0.42em] text-neutral-500">
-                  APAR / SHOPPING BAG
-                </p>
+                  <p className="text-[10px] font-extrabold uppercase tracking-[0.22em] text-[#FF7900]">
+                    PROTEINFITNESS STORE
+                  </p>
+                </div>
 
-                <h1 className="mt-3 text-5xl font-black tracking-[-0.055em] sm:text-6xl lg:text-7xl">
+                {/* TITLE */}
+                <h1 className="mt-5 text-[clamp(3rem,7vw,6.5rem)] font-black uppercase leading-none tracking-[-0.06em]">
                   SHPORTA
+                  <span className="text-[#FF7900]">.</span>
                 </h1>
 
-                <div className="mt-6 flex">
-
-                  <span className="h-[2px] w-9 bg-[#009246]" />
-
-                  <span className="h-[2px] w-9 bg-white/70" />
-
-                  <span className="h-[2px] w-9 bg-[#CE2B37]" />
-
-                </div>
-
+                <p className="mt-5 max-w-xl text-sm leading-7 text-neutral-400 sm:text-base">
+                  Kontrollo produktet, variantet dhe
+                  sasitë përpara se të vazhdosh me porosinë.
+                </p>
               </div>
 
-              {cart.length > 0 && (
-                <div className="sm:text-right">
+              {/* ITEMS COUNTER */}
+              <div className="flex items-center gap-4 rounded-xl border border-[#FF7900]/20 bg-[#FF7900]/[0.06] px-5 py-4">
 
-                  <p className="text-[9px] font-bold tracking-[0.25em] text-neutral-500">
-                    TOTAL ITEMS
+                <ShoppingBag
+                  size={26}
+                  className="text-[#FF7900]"
+                />
+
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-400">
+                    ARTIKUJ NË SHPORTË
                   </p>
 
-                  <p className="mt-2 text-3xl font-black">
-                    {cartCount}
+                  <p
+                    className="mt-1 text-2xl font-black text-white"
+                    aria-live="polite"
+                  >
+                    {totalItems}
                   </p>
-
                 </div>
-              )}
-
+              </div>
             </div>
-
           </div>
+
+          {/* ORANGE ACCENT */}
+          <div className="h-[2px] bg-gradient-to-r from-transparent via-[#FF7900]/70 to-transparent" />
 
         </section>
 
         {/* ================================= */}
-        {/* EMPTY */}
+        {/* EMPTY CART */}
         {/* ================================= */}
 
-        {cart.length === 0 ? (
-          <section className="mx-auto flex min-h-[600px] max-w-[1500px] flex-col items-center justify-center px-5 py-24 text-center sm:px-6 lg:px-10">
+        {items.length === 0 ? (
+          <section className="mx-auto flex min-h-[560px] max-w-[1500px] flex-col items-center justify-center px-5 py-20 text-center">
 
-            <div className="flex h-24 w-24 items-center justify-center rounded-full border border-neutral-200 bg-white">
+            <div className="flex h-28 w-28 items-center justify-center rounded-3xl border border-[#FF7900]/20 bg-[#FF7900]/[0.07]">
 
               <ShoppingBag
-                size={36}
-                strokeWidth={1.2}
-                className="text-neutral-300"
+                size={46}
+                strokeWidth={1.4}
+                className="text-[#FF7900]"
               />
-
             </div>
 
-            <p className="mt-8 text-[9px] font-black tracking-[0.35em] text-neutral-400">
-              APAR BAG
+            <p className="mt-8 text-[10px] font-extrabold uppercase tracking-[0.24em] text-[#FF7900]">
+              PROTEINFITNESS
             </p>
 
-            <h2 className="mt-4 text-4xl font-black tracking-[-0.04em]">
-              Shporta është bosh.
+            <h2 className="mt-4 text-3xl font-black uppercase tracking-[-0.04em] sm:text-5xl">
+              SHPORTA ËSHTË
+              <span className="block text-[#FF7900]">
+                BOSH.
+              </span>
             </h2>
 
-            <p className="mt-4 max-w-md text-sm leading-7 text-neutral-500">
-              Zbulo koleksionin APAR
-              dhe shto produktet që
-              dëshiron të porosisësh.
+            <p className="mt-5 max-w-md text-sm leading-7 text-neutral-400">
+              Ende nuk ke shtuar produkte.
+              Eksploro proteinat, kreatinën,
+              vitaminat dhe aksesorët sportivë.
             </p>
 
             <Link
               to="/shop"
-              style={{
-                color:
-                  "#ffffff",
-              }}
-              className="group mt-8 flex min-h-[56px] items-center gap-8 bg-black px-7 text-xs font-black tracking-[0.12em] text-white"
+              className="group mt-9 inline-flex min-h-[56px] items-center gap-5 rounded-xl bg-[#FF7900] px-7 text-xs font-black uppercase tracking-[0.08em] text-black transition-all duration-300 hover:-translate-y-1 hover:bg-[#FFA03D]"
             >
-              SHOP COLLECTION
+              SHIKO PRODUKTET
 
               <ArrowRight
-                size={16}
-                style={{
-                  color:
-                    "#ffffff",
-                }}
-                className="transition duration-300 group-hover:translate-x-1"
+                size={19}
+                className="transition-transform group-hover:translate-x-1"
               />
             </Link>
 
           </section>
         ) : (
-          <section className="mx-auto grid max-w-[1500px] gap-8 px-5 py-10 sm:px-6 lg:grid-cols-[minmax(0,1fr)_420px] lg:px-10 lg:py-14">
+          /* ================================= */
+          /* CART WITH PRODUCTS */
+          /* ================================= */
+
+          <section className="mx-auto grid max-w-[1500px] gap-8 px-4 py-10 sm:px-6 sm:py-14 lg:grid-cols-[minmax(0,1fr)_390px] lg:items-start lg:gap-9 lg:px-10 lg:py-16">
 
             {/* ================================= */}
-            {/* PRODUCTS */}
+            {/* LEFT — PRODUCTS */}
             {/* ================================= */}
 
-            <div>
+            <div className="min-w-0">
 
               {/* TOP BAR */}
-              <div className="mb-4 flex items-center justify-between border border-neutral-200 bg-white px-5 py-4">
+              <div className="mb-5 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-white/10 bg-[#141414] px-4 py-5 sm:px-6">
 
-                <div>
+                <div className="flex items-center gap-3">
 
-                  <p className="text-[9px] font-black tracking-[0.25em] text-neutral-400">
-                    YOUR BAG
-                  </p>
+                  <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#FF7900]/10">
 
-                  <p className="mt-1 text-sm font-bold">
-                    {cartCount}{" "}
-                    {cartCount === 1
-                      ? "artikull"
-                      : "artikuj"}
-                  </p>
+                    <ShoppingBag
+                      size={20}
+                      className="text-[#FF7900]"
+                    />
+                  </span>
 
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-neutral-500">
+                      PRODUKTET E TUA
+                    </p>
+
+                    <p className="mt-1 text-sm font-bold text-white">
+                      {totalItems}{" "}
+                      {totalItems === 1
+                        ? "artikull"
+                        : "artikuj"}
+                    </p>
+                  </div>
                 </div>
 
+                {/* CLEAR CART */}
                 <button
                   type="button"
                   onClick={clearCart}
-                  className="flex items-center gap-2 text-[10px] font-bold tracking-[0.08em] text-neutral-400 transition hover:text-red-600"
+                  className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2.5 text-[10px] font-extrabold uppercase tracking-wide text-neutral-400 transition hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-400"
                 >
-                  <Trash2
-                    size={14}
-                  />
-
+                  <Trash2 size={15} />
                   PASTRO SHPORTËN
                 </button>
 
               </div>
 
+              {/* ================================= */}
               {/* PRODUCT CARDS */}
+              {/* ================================= */}
+
               <div className="space-y-4">
 
-                {cart.map(
-                  (
-                    item,
-                    index
-                  ) => {
-                    const price =
-                      getNumber(
-                        item.price
-                      );
+                {items.map((item, index) => {
+                  const price = toPrice(item.price);
 
-                    const oldPrice =
-                      getNumber(
-                        item.oldPrice
-                      );
+                  const oldPrice = toPrice(
+                    item.oldPrice ?? item.old_price
+                  );
 
-                    const maxStock =
-                      getMaxStock(
-                        item
-                      );
+                  const quantity = Math.max(
+                    1,
+                    Math.floor(Number(item.quantity) || 1)
+                  );
 
-                    const atMaxStock =
-                      item.quantity >=
-                      maxStock;
+                  const stock = getStock(item);
 
-                    const discount =
-                      oldPrice >
-                      price
-                        ? Math.round(
-                            ((oldPrice -
-                              price) /
-                              oldPrice) *
-                              100
-                          )
-                        : null;
+                  // Pa informacion për stokun,
+                  // limiti teknik i sasisë është 99.
+                  const maxQuantity =
+                    stock === null ? 99 : stock;
 
-                    const lineTotal =
-                      price *
-                      item.quantity;
+                  const atMaxStock =
+                    quantity >= maxQuantity;
 
-                    return (
-                      <article
-                        key={`${item.id}-${item.size || "no-size"}-${item.color || "no-color"}-${index}`}
-                        className="group border border-neutral-200 bg-white p-4 transition duration-500 hover:border-neutral-300 hover:shadow-[0_18px_60px_rgba(0,0,0,0.06)] sm:p-5"
-                      >
+                  const discounted =
+                    price !== null &&
+                    oldPrice !== null &&
+                    oldPrice > price;
 
-                        <div className="grid grid-cols-[100px_minmax(0,1fr)] gap-4 sm:grid-cols-[150px_minmax(0,1fr)] sm:gap-6">
+                  const discountPercent = discounted
+                    ? Math.round(
+                        ((oldPrice - price) / oldPrice) *
+                          100
+                      )
+                    : 0;
 
-                          {/* IMAGE */}
-                          <Link
-                            to={`/product/${item.id}`}
-                            className="relative block aspect-[4/5] overflow-hidden bg-neutral-100"
-                          >
+                  const lineTotal =
+                    price !== null
+                      ? price * quantity
+                      : null;
 
+                  const image = getProductImage(item);
+
+                  const category = getCategoryName(
+                    item.category
+                  );
+
+                  return (
+                    <article
+                      key={`${item.id}-${item.size ?? ""}-${item.color ?? ""}-${index}`}
+                      className="group relative overflow-hidden rounded-2xl border border-white/10 bg-[#141414] p-3 transition-all duration-300 hover:border-[#FF7900]/40 sm:p-5"
+                    >
+                      {/* TOP ACCENT */}
+                      <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-[#FF7900]/40 to-transparent" />
+
+                      <div className="grid grid-cols-[92px_minmax(0,1fr)] gap-3 sm:grid-cols-[145px_minmax(0,1fr)] sm:gap-6">
+
+                        {/* ================================= */}
+                        {/* PRODUCT IMAGE */}
+                        {/* ================================= */}
+
+                        <Link
+                          to={`/product/${encodeURIComponent(item.id)}`}
+                          className="relative block aspect-[4/5] self-start overflow-hidden rounded-xl border border-white/10 bg-[#202020]"
+                        >
+
+                          {image ? (
                             <img
-                              src={
-                                item.image
-                              }
-                              alt={
-                                item.name
-                              }
-                              className="h-full w-full object-cover transition duration-700 group-hover:scale-[1.03]"
+                              src={image}
+                              alt={item.name}
+                              loading="lazy"
+                              className="h-full w-full object-contain p-2 transition-transform duration-500 group-hover:scale-105 sm:p-3"
                             />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center">
+                              <ImageOff
+                                size={28}
+                                className="text-neutral-600"
+                              />
+                            </div>
+                          )}
 
-                            <span className="absolute bottom-2 left-2 bg-black/85 px-2 py-1 text-[7px] font-bold tracking-[0.15em] text-white backdrop-blur-md">
-                              {String(
-                                index +
-                                  1
-                              ).padStart(
-                                2,
-                                "0"
+                          {/* DISCOUNT BADGE */}
+                          {discounted && (
+                            <span className="absolute left-1.5 top-1.5 rounded bg-[#FF7900] px-1.5 py-1 text-[9px] font-black text-black sm:left-2 sm:top-2 sm:px-2">
+                              −{discountPercent}%
+                            </span>
+                          )}
+
+                        </Link>
+
+                        {/* ================================= */}
+                        {/* PRODUCT INFORMATION */}
+                        {/* ================================= */}
+
+                        <div className="flex min-w-0 flex-col">
+
+                          {/* CATEGORY + DELETE */}
+                          <div className="flex items-start justify-between gap-2">
+
+                            <div className="min-w-0">
+
+                              <p className="truncate text-[9px] font-extrabold uppercase tracking-[0.11em] text-[#FF9C37]">
+                                {category}
+                              </p>
+
+                              <Link
+                                to={`/product/${encodeURIComponent(item.id)}`}
+                                className="mt-2 block"
+                              >
+                                <h2 className="line-clamp-2 text-sm font-black leading-5 text-white transition-colors hover:text-[#FF9C37] sm:text-lg sm:leading-6">
+                                  {item.name}
+                                </h2>
+                              </Link>
+
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                removeFromCart(
+                                  item.id,
+                                  item.size,
+                                  item.color
+                                )
+                              }
+                              aria-label={`Largo ${item.name} nga shporta`}
+                              title="Largo produktin"
+                              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/10 text-neutral-400 transition hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-400"
+                            >
+                              <Trash2 size={17} />
+                            </button>
+
+                          </div>
+
+                          {/* ================================= */}
+                          {/* PRODUCT VARIANTS */}
+                          {/* ================================= */}
+
+                          {(item.size || item.color) && (
+                            <div className="mt-3 flex flex-wrap gap-2">
+
+                              {item.size && (
+                                <span className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-1.5 text-[10px] text-neutral-300">
+                                  Pesha:{" "}
+                                  <strong className="text-white">
+                                    {item.size}
+                                  </strong>
+                                </span>
                               )}
+
+                              {item.color && (
+                                <span className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-1.5 text-[10px] text-neutral-300">
+                                  Shija:{" "}
+                                  <strong className="text-white">
+                                    {item.color}
+                                  </strong>
+                                </span>
+                              )}
+
+                            </div>
+                          )}
+
+                          {/* ================================= */}
+                          {/* PRICE */}
+                          {/* ================================= */}
+
+                          <div className="mt-4 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+
+                            <span className="text-base font-black text-white sm:text-xl">
+                              {price !== null
+                                ? euro(price)
+                                : "Çmimi i padisponueshëm"}
                             </span>
 
-                            {discount && (
-                              <span className="absolute left-2 top-2 bg-[#CE2B37] px-2.5 py-1.5 text-[8px] font-black text-white">
-                                -
-                                {
-                                  discount
-                                }
-                                %
+                            {discounted && (
+                              <span className="text-xs text-neutral-500 line-through">
+                                {euro(oldPrice)}
                               </span>
                             )}
 
-                          </Link>
+                          </div>
 
-                          {/* PRODUCT INFO */}
-                          <div className="flex min-w-0 flex-col">
+                          {/* STOCK WARNING */}
+                          {stock !== null &&
+                            stock < quantity && (
+                              <p className="mt-2 text-[10px] font-semibold text-amber-400">
+                                Sasia tejkalon stokun e regjistruar.
+                              </p>
+                            )}
 
-                            <div className="flex items-start justify-between gap-4">
+                          {/* ================================= */}
+                          {/* QUANTITY AND TOTAL */}
+                          {/* ================================= */}
 
-                              <div className="min-w-0">
+                          <div className="mt-auto pt-4">
 
-                                <p className="text-[8px] font-black uppercase tracking-[0.25em] text-neutral-400">
-                                  {
-                                    item.category
-                                  }
-                                </p>
+                            <div className="flex flex-wrap items-end justify-between gap-3 border-t border-white/10 pt-4">
 
-                                <Link
-                                  to={`/product/${item.id}`}
-                                  className="mt-2 block"
-                                >
-                                  <h2 className="text-base font-black tracking-[-0.02em] text-black transition hover:text-neutral-500 sm:text-lg">
-                                    {
-                                      item.name
-                                    }
-                                  </h2>
-                                </Link>
-
-                                {/* VARIANTS */}
-                                <div className="mt-3 flex flex-wrap gap-2">
-
-                                  {item.size && (
-                                    <span className="border border-neutral-200 bg-[#f8f8f6] px-2.5 py-1.5 text-[8px] font-bold tracking-[0.1em] text-neutral-600">
-                                      SIZE{" "}
-                                      {
-                                        item.size
-                                      }
-                                    </span>
-                                  )}
-
-                                  {item.color && (
-                                    <span className="border border-neutral-200 bg-[#f8f8f6] px-2.5 py-1.5 text-[8px] font-bold tracking-[0.1em] text-neutral-600">
-                                      {
-                                        item.color
-                                      }
-                                    </span>
-                                  )}
-
-                                </div>
-
-                              </div>
-
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  removeFromCart(
-                                    item.id,
-                                    item.size,
-                                    item.color
-                                  )
-                                }
-                                aria-label={`Largo ${item.name}`}
-                                className="flex h-9 w-9 flex-shrink-0 items-center justify-center text-neutral-400 transition hover:bg-red-50 hover:text-red-600"
-                              >
-                                <Trash2
-                                  size={16}
-                                />
-                              </button>
-
-                            </div>
-
-                            {/* PRICE */}
-                            <div className="mt-4 flex flex-wrap items-center gap-2">
-
-                              <span className="text-base font-black">
-                                {price.toFixed(
-                                  2
-                                )}{" "}
-                                €
-                              </span>
-
-                              {oldPrice >
-                                price && (
-                                <span className="text-xs text-neutral-400 line-through">
-                                  {oldPrice.toFixed(
-                                    2
-                                  )}{" "}
-                                  €
-                                </span>
-                              )}
-
-                              {discount && (
-                                <span className="text-[9px] font-black text-[#CE2B37]">
-                                  SAVE{" "}
-                                  {
-                                    discount
-                                  }
-                                  %
-                                </span>
-                              )}
-
-                            </div>
-
-                            {/* MOBILE DIVIDER */}
-                            <div className="my-4 h-px bg-neutral-100" />
-
-                            {/* QUANTITY / TOTAL */}
-                            <div className="mt-auto flex flex-wrap items-end justify-between gap-4">
-
+                              {/* QUANTITY */}
                               <div>
-
-                                <p className="mb-2 text-[8px] font-black tracking-[0.2em] text-neutral-400">
-                                  QUANTITY
+                                <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-500">
+                                  SASIA
                                 </p>
 
-                                <div className="flex h-10 items-center border border-neutral-300 bg-white">
+                                <div className="inline-flex h-10 items-center overflow-hidden rounded-lg border border-white/15 bg-[#0B0B0B]">
 
                                   <button
                                     type="button"
-                                    disabled={
-                                      item.quantity <=
-                                      1
-                                    }
+                                    aria-label="Zvogëlo sasinë"
+                                    disabled={quantity <= 1}
                                     onClick={() =>
                                       updateQuantity(
                                         item.id,
                                         item.size,
                                         item.color,
-                                        item.quantity -
-                                          1
+                                        quantity - 1
                                       )
                                     }
-                                    className="flex h-full w-10 items-center justify-center transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-25"
+                                    className="flex h-full w-9 items-center justify-center transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-30 sm:w-10"
                                   >
-                                    <Minus
-                                      size={
-                                        13
-                                      }
-                                    />
+                                    <Minus size={15} />
                                   </button>
 
-                                  <span className="flex h-full min-w-[42px] items-center justify-center border-x border-neutral-200 px-2 text-xs font-black">
-                                    {
-                                      item.quantity
-                                    }
+                                  <span className="flex h-full min-w-[38px] items-center justify-center border-x border-white/15 px-2 text-xs font-black text-white">
+                                    {quantity}
                                   </span>
 
                                   <button
                                     type="button"
-                                    disabled={
-                                      atMaxStock
-                                    }
+                                    aria-label="Rrit sasinë"
+                                    disabled={atMaxStock}
                                     onClick={() =>
                                       updateQuantity(
                                         item.id,
                                         item.size,
                                         item.color,
-                                        item.quantity +
-                                          1
+                                        quantity + 1
                                       )
                                     }
-                                    className="flex h-full w-10 items-center justify-center transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-25"
+                                    className="flex h-full w-9 items-center justify-center transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-30 sm:w-10"
                                   >
-                                    <Plus
-                                      size={
-                                        13
-                                      }
-                                    />
+                                    <Plus size={15} />
                                   </button>
 
                                 </div>
 
-                                {atMaxStock && (
-                                  <p className="mt-2 text-[9px] font-semibold text-amber-600">
-                                    Maksimumi
-                                    në stok:{" "}
-                                    {
-                                      maxStock
-                                    }
-                                  </p>
-                                )}
-
                               </div>
 
+                              {/* LINE TOTAL */}
                               <div className="text-right">
 
-                                <p className="text-[8px] font-black tracking-[0.2em] text-neutral-400">
-                                  TOTAL
+                                <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-500">
+                                  TOTALI
                                 </p>
 
-                                <p className="mt-1 text-xl font-black tracking-[-0.03em]">
-                                  {lineTotal.toFixed(
-                                    2
-                                  )}{" "}
-                                  €
+                                <p className="text-lg font-black tracking-tight text-[#FF9C37] sm:text-xl">
+                                  {lineTotal !== null
+                                    ? euro(lineTotal)
+                                    : "—"}
                                 </p>
 
                               </div>
 
                             </div>
-
                           </div>
 
                         </div>
-
-                      </article>
-                    );
-                  }
-                )}
+                      </div>
+                    </article>
+                  );
+                })}
 
               </div>
 
               {/* CONTINUE SHOPPING */}
               <Link
                 to="/shop"
-                className="mt-6 inline-flex items-center gap-3 text-[10px] font-black tracking-[0.14em] text-black transition hover:gap-4"
+                className="group mt-7 inline-flex items-center gap-3 text-xs font-extrabold uppercase tracking-[0.09em] text-neutral-300 transition-colors hover:text-[#FF7900]"
               >
-                VAZHDO SHOPPING
-
-                <ArrowRight
-                  size={15}
+                <ArrowLeft
+                  size={18}
+                  className="text-[#FF7900] transition-transform group-hover:-translate-x-1"
                 />
+
+                VAZHDO BLERJET
               </Link>
 
             </div>
 
             {/* ================================= */}
-            {/* SUMMARY */}
+            {/* RIGHT — ORDER SUMMARY */}
             {/* ================================= */}
 
-            <aside className="h-fit border border-neutral-200 bg-white lg:sticky lg:top-24">
+            <aside className="h-fit overflow-hidden rounded-2xl border border-white/10 bg-[#141414] lg:sticky lg:top-24">
 
               {/* SUMMARY HEADER */}
-              <div className="border-b border-neutral-200 bg-black p-6 text-white">
+              <div className="border-b border-white/10 bg-[#1A1A1A] px-6 py-6">
 
-                <p className="text-[9px] font-black tracking-[0.3em] text-neutral-500">
-                  APAR ORDER
-                </p>
+                <div className="flex items-center gap-3">
 
-                <h2 className="mt-2 text-2xl font-black tracking-[-0.03em]">
-                  Përmbledhja
-                </h2>
+                  <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#FF7900]/10">
+
+                    <PackageCheck
+                      size={23}
+                      className="text-[#FF7900]"
+                    />
+
+                  </span>
+
+                  <div>
+                    <p className="text-[10px] font-extrabold uppercase tracking-[0.15em] text-[#FF7900]">
+                      PROTEINFITNESS
+                    </p>
+
+                    <h2 className="mt-1 text-xl font-black uppercase tracking-tight text-white">
+                      PËRMBLEDHJA
+                    </h2>
+                  </div>
+
+                </div>
 
               </div>
 
-              <div className="p-6">
+              {/* SUMMARY BODY */}
+              <div className="px-5 py-6 sm:px-6">
 
                 {/* COUNT */}
-                <div className="flex items-center justify-between border-b border-neutral-200 pb-5">
+                <div className="flex items-center justify-between gap-4 border-b border-white/10 pb-5">
 
-                  <span className="text-xs text-neutral-500">
+                  <span className="text-sm text-neutral-400">
                     Artikujt
                   </span>
 
-                  <span className="text-xs font-bold">
-                    {
-                      cartCount
-                    }
+                  <span className="text-sm font-bold text-white">
+                    {totalItems}
                   </span>
 
                 </div>
 
                 {/* SUBTOTAL */}
-                <div className="flex items-center justify-between border-b border-neutral-200 py-5">
+                <div className="flex items-center justify-between gap-4 border-b border-white/10 py-5">
 
-                  <span className="text-xs text-neutral-500">
+                  <span className="text-sm text-neutral-400">
                     Nëntotali
                   </span>
 
-                  <span className="text-sm font-black">
-                    {cartTotal.toFixed(
-                      2
-                    )}{" "}
-                    €
+                  <span className="text-base font-black text-white">
+                    {euro(subtotal)}
                   </span>
 
                 </div>
 
-                {/* SHIPPING */}
-                <div className="border-b border-neutral-200 py-5">
-
-                  <div className="flex items-start justify-between gap-4">
-
-                    <div>
-
-                      <span className="text-xs text-neutral-500">
-                        Dërgesa
-                      </span>
-
-                      <p className="mt-1 text-[9px] leading-5 text-neutral-400">
-                        Zgjidhet sipas
-                        shtetit në
-                        checkout.
-                      </p>
-
-                    </div>
-
-                    <span className="text-right text-[10px] font-bold">
-                      2.50 € – 5.00 €
-                    </span>
-
-                  </div>
-
-                </div>
-
-                {/* SHIPPING OPTIONS */}
-                <div className="my-5 space-y-2">
-
-                  <div className="flex items-center justify-between bg-[#f7f7f5] px-4 py-3">
-
-                    <span className="text-[10px] font-semibold text-neutral-500">
-                      Kosovë
-                    </span>
-
-                    <span className="text-[10px] font-black">
-                      2.50 €
-                    </span>
-
-                  </div>
-
-                  <div className="flex items-center justify-between bg-[#f7f7f5] px-4 py-3">
-
-                    <span className="text-[10px] font-semibold text-neutral-500">
-                      Shqipëri
-                    </span>
-
-                    <span className="text-[10px] font-black">
-                      5.00 €
-                    </span>
-
-                  </div>
-
-                  <div className="flex items-center justify-between bg-[#f7f7f5] px-4 py-3">
-
-                    <span className="text-[10px] font-semibold text-neutral-500">
-                      Maqedoni e Veriut
-                    </span>
-
-                    <span className="text-[10px] font-black">
-                      5.00 €
-                    </span>
-
-                  </div>
-
-                </div>
-
-                {/* TOTAL */}
-                <div className="flex items-end justify-between border-t border-neutral-200 pt-6">
+                {/* DELIVERY */}
+                <div className="flex items-start justify-between gap-4 border-b border-white/10 py-5">
 
                   <div>
-
-                    <p className="text-sm font-black">
-                      TOTALI
+                    <p className="text-sm text-neutral-300">
+                      Dërgesa
                     </p>
 
-                    <p className="mt-1 text-[9px] text-neutral-400">
-                      Pa dërgesë
+                    <p className="mt-2 text-xs leading-5 text-neutral-500">
+                      Kostoja përcaktohet sipas
+                      destinacionit në Checkout.
                     </p>
-
                   </div>
 
-                  <span className="text-3xl font-black tracking-[-0.05em]">
-                    {cartTotal.toFixed(
-                      2
-                    )}{" "}
-                    €
-                  </span>
+                  <Truck
+                    size={20}
+                    className="shrink-0 text-[#FF7900]"
+                  />
 
                 </div>
 
-                {/* CHECKOUT */}
-                <Link
-                  to="/checkout"
-                  style={{
-                    color:
-                      "#ffffff",
-                  }}
-                  className="group mt-7 flex min-h-[60px] w-full items-center justify-between bg-black px-6 text-xs font-black tracking-[0.1em] text-white transition hover:bg-neutral-800"
-                >
-                  <span
-                    style={{
-                      color:
-                        "#ffffff",
-                    }}
-                  >
-                    VAZHDO NË
-                    CHECKOUT
-                  </span>
+                {/* SHIPPING DESTINATIONS */}
+                <div className="my-6 rounded-xl border border-white/10 bg-[#0C0C0C] p-4">
 
-                  <ArrowRight
-                    size={17}
-                    style={{
-                      color:
-                        "#ffffff",
-                    }}
-                    className="transition duration-300 group-hover:translate-x-1"
-                  />
-                </Link>
+                  <p className="mb-3 text-[10px] font-extrabold uppercase tracking-[0.13em] text-[#FF7900]">
+                    DESTINACIONET
+                  </p>
 
-                <p className="mt-4 text-center text-[10px] leading-5 text-neutral-400">
-                  Pagesa bëhet në
-                  dorëzim.
-                </p>
+                  <div className="space-y-3 text-xs text-neutral-400">
 
-                {/* TRUST */}
-                <div className="mt-6 grid grid-cols-3 border-t border-neutral-200 pt-5">
+                    <div className="flex items-center justify-between">
+                      <span>Kosovë</span>
+                      <span className="text-neutral-300">
+                        Sipas adresës
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <span>Shqipëri</span>
+                      <span className="text-neutral-300">
+                        Sipas adresës
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <span>Maqedoni e Veriut</span>
+                      <span className="text-neutral-300">
+                        Sipas adresës
+                      </span>
+                    </div>
+
+                  </div>
+
+                </div>
+
+                {/* ================================= */}
+                {/* FINAL TOTAL */}
+                {/* ================================= */}
+
+                <div className="border-t border-white/10 pt-6">
+
+                  <div className="flex items-end justify-between gap-4">
+
+                    <div>
+                      <p className="text-sm font-black uppercase text-white">
+                        TOTALI
+                      </p>
+
+                      <p className="mt-1 text-[11px] text-neutral-500">
+                        Pa koston e dërgesës
+                      </p>
+                    </div>
+
+                    <span className="text-3xl font-black tracking-tight text-[#FF7900]">
+                      {euro(subtotal)}
+                    </span>
+
+                  </div>
+
+                  {/* CHECKOUT BUTTON */}
+                  {canCheckout ? (
+                    <Link
+                      to="/checkout"
+                      className="group mt-7 flex min-h-[58px] w-full items-center justify-between gap-3 rounded-xl bg-[#FF7900] px-5 text-xs font-black uppercase tracking-[0.08em] text-black transition-all duration-300 hover:bg-[#FFA03D]"
+                    >
+                      VAZHDO NË CHECKOUT
+
+                      <ArrowRight
+                        size={19}
+                        className="transition-transform group-hover:translate-x-1"
+                      />
+                    </Link>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        disabled
+                        className="mt-7 flex min-h-[58px] w-full cursor-not-allowed items-center justify-center rounded-xl bg-neutral-800 px-5 text-xs font-black uppercase text-neutral-500"
+                      >
+                        KONTROLLO PRODUKTET
+                      </button>
+
+                      <p className="mt-3 text-xs leading-6 text-amber-400">
+                        Kontrollo çmimin dhe
+                        disponueshmërinë e produkteve
+                        para vazhdimit.
+                      </p>
+                    </>
+                  )}
+
+                  <p className="mt-4 text-center text-[11px] leading-6 text-neutral-500">
+                    Totali final dhe mundësitë e
+                    pagesës konfirmohen gjatë porosisë.
+                  </p>
+
+                </div>
+
+                {/* ================================= */}
+                {/* TRUST FEATURES */}
+                {/* ================================= */}
+
+                <div className="mt-7 grid grid-cols-3 gap-2 border-t border-white/10 pt-6">
 
                   <div className="text-center">
 
                     <Truck
-                      size={17}
-                      className="mx-auto"
+                      size={21}
+                      className="mx-auto text-[#FF7900]"
                     />
 
-                    <p className="mt-2 text-[7px] font-black tracking-[0.1em] text-neutral-500">
-                      DELIVERY
+                    <p className="mt-2 text-[9px] font-bold uppercase text-neutral-400">
+                      DËRGESA
                     </p>
 
                   </div>
 
-                  <div className="border-x border-neutral-200 text-center">
+                  <div className="border-x border-white/10 text-center">
 
                     <ShieldCheck
-                      size={17}
-                      className="mx-auto"
+                      size={21}
+                      className="mx-auto text-[#FF7900]"
                     />
 
-                    <p className="mt-2 text-[7px] font-black tracking-[0.1em] text-neutral-500">
-                      SECURE
+                    <p className="mt-2 text-[9px] font-bold uppercase text-neutral-400">
+                      POROSIA
                     </p>
 
                   </div>
 
                   <div className="text-center">
 
-                    <PackageCheck
-                      size={17}
-                      className="mx-auto"
+                    <CreditCard
+                      size={21}
+                      className="mx-auto text-[#FF7900]"
                     />
 
-                    <p className="mt-2 text-[7px] font-black tracking-[0.1em] text-neutral-500">
-                      COD
+                    <p className="mt-2 text-[9px] font-bold uppercase text-neutral-400">
+                      PAGESA
                     </p>
 
                   </div>
@@ -774,21 +933,55 @@ export default function Cart() {
 
               </div>
 
-              {/* BRAND LINE */}
-              <div className="flex h-[2px]">
-
-                <span className="flex-1 bg-[#009246]" />
-
-                <span className="flex-1 bg-neutral-200" />
-
-                <span className="flex-1 bg-[#CE2B37]" />
-
-              </div>
+              {/* BRAND BOTTOM LINE */}
+              <div className="h-[3px] bg-gradient-to-r from-[#FF7900] via-[#FFB15E] to-[#FF7900]" />
 
             </aside>
 
           </section>
         )}
+
+        {/* ================================= */}
+        {/* BOTTOM BRAND STRIP */}
+        {/* ================================= */}
+
+        <section className="border-t border-white/10 bg-[#0D0D0D]">
+
+          <div className="mx-auto flex max-w-[1500px] flex-col items-start justify-between gap-6 px-5 py-9 sm:flex-row sm:items-center sm:px-6 lg:px-10">
+
+            <div className="flex items-center gap-4">
+
+              <img
+                src={LOGO}
+                alt="ProteinFitness"
+                loading="lazy"
+                className="h-14 w-20 shrink-0 object-contain sm:w-24"
+              />
+
+              <div>
+                <p className="text-[11px] font-black uppercase tracking-[0.1em] text-white">
+                  PROTEINFITNESS
+                </p>
+
+                <p className="mt-2 text-xs text-neutral-500">
+                  Sports Supplements Store
+                </p>
+              </div>
+
+            </div>
+
+            <Link
+              to="/shop"
+              className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-[#FF7900] hover:text-[#FFB15E]"
+            >
+              EKSPLORO PRODUKTET
+
+              <ArrowRight size={18} />
+            </Link>
+
+          </div>
+
+        </section>
 
       </main>
 
